@@ -1,0 +1,142 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+
+body { @apply bg-slate-50 text-slate-900 font-sans; }
+
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 99px; }
+::-webkit-scrollbar-thumb:hover { background: #94A3B8; }
+
+@layer components {
+  .card {
+    @apply bg-white rounded-2xl border border-slate-100 shadow-card;
+  }
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2
+           bg-gradient-to-r from-brand-accent to-brand-mid
+           text-white px-4 py-2.5 rounded-xl text-sm font-semibold
+           shadow-sm hover:shadow-glow hover:opacity-90
+           active:scale-[.98] transition-all duration-150
+           disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2
+           bg-white border border-slate-200 text-slate-700
+           px-4 py-2.5 rounded-xl text-sm font-semibold
+           hover:bg-slate-50 hover:border-slate-300
+           active:scale-[.98] transition-all duration-150
+           disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2
+           text-slate-500 px-3 py-2 rounded-xl text-sm font-medium
+           hover:bg-slate-100 hover:text-slate-700
+           transition-all duration-150;
+  }
+  .input {
+    @apply w-full bg-slate-50 border border-slate-200 rounded-xl
+           px-3.5 py-2.5 text-sm text-slate-800 placeholder:text-slate-400
+           focus:outline-none focus:bg-white focus:border-brand-accent
+           focus:ring-2 focus:ring-brand-accent/20 transition-all duration-150;
+  }
+  .label { @apply block text-xs font-semibold text-slate-500 mb-1.5; }
+
+  .badge { @apply inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border; }
+  .badge-new       { @apply badge bg-blue-50   text-blue-700   border-blue-100;   }
+  .badge-contacted { @apply badge bg-amber-50  text-amber-700  border-amber-100;  }
+  .badge-responded { @apply badge bg-orange-50 text-orange-700 border-orange-100; }
+  .badge-converted { @apply badge bg-emerald-50 text-emerald-700 border-emerald-100; }
+  .badge-synced    { @apply badge bg-slate-50  text-slate-600  border-slate-200;  }
+  .badge-pending   { @apply badge bg-amber-50  text-amber-700  border-amber-100;  }
+  .badge-approved  { @apply badge bg-emerald-50 text-emerald-700 border-emerald-100; }
+  .badge-rejected  { @apply badge bg-red-50    text-red-600    border-red-100;    }
+
+  .page       { @apply p-4 sm:p-6 space-y-5; }
+  .page-title { @apply text-lg sm:text-xl font-bold text-slate-800 tracking-tight; }
+
+  /* Stat card icon bg — from MAJJICON */
+  .stat-icon-green  { @apply w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center shrink-0; }
+  .stat-icon-violet { @apply w-10 h-10 rounded-xl bg-violet-50  flex items-center justify-center shrink-0; }
+  .stat-icon-blue   { @apply w-10 h-10 rounded-xl bg-blue-50    flex items-center justify-center shrink-0; }
+  .stat-icon-amber  { @apply w-10 h-10 rounded-xl bg-amber-50   flex items-center justify-center shrink-0; }
+
+  /* Period filter tabs — from MAJJICON */
+  .period-tabs { @apply flex gap-1 bg-slate-100 p-1 rounded-xl; }
+  .period-tab  { @apply px-3 py-1.5 rounded-lg text-xs font-semibold transition-all; }
+  .period-tab-active   { @apply bg-white text-brand-accent shadow-sm; }
+  .period-tab-inactive { @apply text-slate-500 hover:text-slate-700; }
+}
+
+/* ── Dark mode ─────────────────────────────────────────────────
+   Deep navy inspired by MAJJICON dark (#0f1624 bg, #182032 cards)
+   ─────────────────────────────────────────────────────────────── */
+html.dark {
+  color-scheme: dark;
+}
+html.dark body {
+  background-color: #0d1117;
+  color: #e2e8f0;
+}
+html.dark .card {
+  background-color: #161b27 !important;
+  border-color: #1e2d3d !important;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.3) !important;
+}
+html.dark header {
+  background-color: #161b27 !important;
+  border-color: #1e2d3d !important;
+}
+html.dark aside {
+  background-color: #161b27 !important;
+  border-color: #1e2d3d !important;
+}
+html.dark .bottom-nav {
+  background-color: #161b27 !important;
+  border-color: #1e2d3d !important;
+}
+html.dark .bg-white           { background-color: #161b27 !important; }
+html.dark .bg-slate-50,
+html.dark .bg-slate-50\/40,
+html.dark .bg-slate-50\/60    { background-color: #0d1117 !important; }
+html.dark .bg-slate-100,
+html.dark .bg-slate-100\/70   { background-color: #1e2d3d !important; }
+html.dark .text-slate-800,
+html.dark .text-slate-900     { color: #f1f5f9 !important; }
+html.dark .text-slate-700     { color: #e2e8f0 !important; }
+html.dark .text-slate-600,
+html.dark .text-slate-500     { color: #94a3b8 !important; }
+html.dark .text-slate-400     { color: #64748b !important; }
+html.dark .border-slate-100,
+html.dark .border-slate-200   { border-color: #1e2d3d !important; }
+html.dark input,
+html.dark textarea,
+html.dark select {
+  background-color: #0d1117 !important;
+  border-color: #1e2d3d !important;
+  color: #e2e8f0 !important;
+}
+html.dark .divide-slate-50 > * + * { border-color: #161b27 !important; }
+html.dark table thead tr   { background-color: #0d1117 !important; }
+html.dark table tbody tr:hover { background-color: #161b27 !important; }
+
+/* stat icon dark overrides */
+html.dark .stat-icon-green  { background-color: rgba(16,185,129,0.12) !important; }
+html.dark .stat-icon-violet { background-color: rgba(139,92,246,0.12) !important; }
+html.dark .stat-icon-blue   { background-color: rgba(59,130,246,0.12) !important; }
+html.dark .stat-icon-amber  { background-color: rgba(245,158,11,0.12) !important; }
+
+/* period tabs dark */
+html.dark .period-tabs       { background-color: #0d1117 !important; }
+html.dark .period-tab-active { background-color: #161b27 !important; }
+
+/* emerald/violet/amber tinted panels stay visible in dark */
+html.dark .bg-emerald-50 { background-color: rgba(16,185,129,0.10) !important; }
+html.dark .bg-violet-50  { background-color: rgba(139,92,246,0.10) !important; }
+html.dark .bg-amber-50   { background-color: rgba(245,158,11,0.10)  !important; }
+html.dark .bg-red-50     { background-color: rgba(239,68,68,0.10)   !important; }
+html.dark .bg-blue-50    { background-color: rgba(59,130,246,0.10)  !important; }
