@@ -1,0 +1,12 @@
+# The working copy is on Windows (CRLF) but the deploy target is Linux.
+# Without this, every file lands on the VPS with CRLF — which silently breaks
+# shell scripts (`#!/bin/bash\r` -> "bad interpreter") and makes every file
+# show as modified on both sides.
+* text=auto eol=lf
+
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.ico  binary
+*.docx binary
+*.gz   binary
