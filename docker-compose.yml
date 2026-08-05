@@ -44,28 +44,28 @@ services:
       - "443:443"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      # Certs live on the host so nginx and certbot share one location.
+      # Certs live on the host, written by the host's certbot.
       - /etc/letsencrypt:/etc/letsencrypt:ro
-      - certbot_data:/var/www/certbot:ro
+      # ACME HTTP-01 webroot. The host certbot writes challenge files here and
+      # nginx serves them from /.well-known/acme-challenge/ on port 80.
+      - /var/www/certbot:/var/www/certbot:ro
     depends_on: [frontend, backend]
     networks: [autocrm]
 
-  certbot:
-    image: certbot/certbot
-    volumes:
-      # MUST match the path nginx reads from, or renewals land somewhere
-      # nginx never looks and the live cert silently expires.
-      - /etc/letsencrypt:/etc/letsencrypt
-      - certbot_data:/var/www/certbot
-    entrypoint: >
-      sh -c "trap exit TERM; while :; do
-        certbot renew --webroot -w /var/www/certbot --quiet;
-        sleep 12h & wait $${!}; done"
+# NOTE: there is deliberately no certbot service here.
+#
+# The live certificate is owned by the HOST certbot (/usr/bin/certbot) and
+# renewed by certbot.timer. A containerised certbot fought it over
+# /etc/letsencrypt and renewed into a path nginx never read.
+#
+# The renewal authenticator is `webroot` (see /etc/letsencrypt/renewal/*.conf),
+# writing to /var/www/certbot, which nginx serves read-only. It must NOT be
+# `standalone`: that binds :80 itself, and nginx already holds :80, so every
+# renewal fails with "Could not bind TCP port 80".
 
 volumes:
   postgres_data:
   redis_data:
-  certbot_data:
 
 networks:
   autocrm:
