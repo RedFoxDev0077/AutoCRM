@@ -6,6 +6,8 @@ on:
   push:
     branches: ["**"]
   pull_request:
+  # Lets you redeploy the current master without pushing a commit.
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -90,7 +92,9 @@ jobs:
   deploy:
     name: Deploy to VPS
     needs: [backend, frontend, images]
-    if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+    if: >-
+      github.ref == 'refs/heads/master' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     # Never let two deploys overlap; queue instead of cancelling so a deploy
     # is never interrupted half-way through a rebuild.
@@ -108,48 +112,71 @@ jobs:
       - name: Deploy
         env:
           HOST: ${{ secrets.VPS_HOST }}
-          USER: ${{ secrets.VPS_USER }}
+          DEPLOY_USER: ${{ secrets.VPS_USER }}
           SHA: ${{ github.sha }}
+        # The heredoc is QUOTED (<<'REMOTE') so nothing expands on the runner —
+        # the script arrives verbatim. The one value we need from the runner is
+        # passed as an environment variable on the remote command line.
         run: |
-          ssh -o BatchMode=yes "$USER@$HOST" bash -euo pipefail -s <<EOF
+          ssh -o BatchMode=yes "$DEPLOY_USER@$HOST" "TARGET_SHA='$SHA' bash -s" <<'REMOTE'
+          set -euo pipefail
           cd /opt/autocrm
 
-          # Remember where we were so we can roll back.
-          PREV=\$(git rev-parse HEAD)
-          echo "current: \$PREV  ->  target: $SHA"
+          PREV=$(git rev-parse HEAD)
+          echo "current: $PREV  ->  target: $TARGET_SHA"
+
+          rollback() {
+            echo "::error::deploy failed - rolling back to $PREV"
+            git reset --hard "$PREV"
+            docker compose up -d --build --remove-orphans || true
+          }
 
           git fetch --prune origin
-          git reset --hard "$SHA"
+          git reset --hard "$TARGET_SHA"
 
-          # Validate the nginx config in a throwaway container before it can
-          # take the live site down. Runs on the compose network so the
-          # backend/frontend upstreams resolve.
+          # Past this point the working tree is already on the new commit, so
+          # any failure must restore the previous one. Without this trap `set -e`
+          # would abort before the rollback could run.
+          trap rollback ERR
+
+          # Validate nginx in a throwaway container before it can take the live
+          # site down. Same mounts as the real service, and on the compose
+          # network so the backend/frontend upstreams resolve.
           docker run --rm \
             --network autocrm_autocrm \
             -v /opt/autocrm/nginx/nginx.conf:/etc/nginx/nginx.conf:ro \
             -v /etc/letsencrypt:/etc/letsencrypt:ro \
+            -v /var/www/certbot:/var/www/certbot:ro \
             nginx:alpine nginx -t
 
-          docker compose up -d --build
+          docker compose up -d --build --remove-orphans
 
-          # Give the backend a moment, then confirm it actually answers.
-          for i in \$(seq 1 20); do
+          healthy=0
+          for i in $(seq 1 20); do
             if docker compose exec -T backend python -c \
                  "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health', timeout=3).status==200 else 1)" 2>/dev/null; then
-              echo "health OK after \${i}0s"
-              exit 0
+              healthy=1
+              echo "backend healthy after ~$((i*10))s"
+              break
             fi
             sleep 10
           done
 
-          echo "::error::health check failed - rolling back to \$PREV"
-          git reset --hard "\$PREV"
-          docker compose up -d --build
-          exit 1
-          EOF
+          # Disarm the trap so rollback runs exactly once, not twice.
+          trap - ERR
+
+          if [ "$healthy" -ne 1 ]; then
+            echo "::error::backend did not become healthy within 200s"
+            rollback
+            exit 1
+          fi
+
+          echo "deployed $(git rev-parse --short HEAD)"
+          REMOTE
 
       - name: Prune stale images
         if: always()
+        continue-on-error: true
         run: |
           ssh -o BatchMode=yes "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" \
             'docker image prune -f --filter "until=168h"'
