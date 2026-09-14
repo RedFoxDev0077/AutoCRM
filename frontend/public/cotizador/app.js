@@ -12,6 +12,9 @@ var ITEMS = [];              // catálogo unificado
 var doc = null;
 var lista = null;            // lista de precios para el cliente
 var modo = "cot";            // "cot" | "lista": a qué documento van los artículos del catálogo
+var vista = "cotizaciones";  // pantalla visible
+var filtroEstado = "", filtroCot = "";
+var ESTADOS = [["borrador","Borrador"],["enviada","Enviada"],["aceptada","Aceptada"],["rechazada","Rechazada"]];
 var HIST = [];               // cotizaciones guardadas, la más nueva primero
 var LS = "indseg.cotizador.v2";
 
@@ -77,7 +80,38 @@ function costoTxt(it){
 /* ============ cotización ============ */
 function docVacio(n){
   return { numero:String(n||""), empresa:"", direccion:"", cotizo:"Federico", fecha:hoy(), entrega:manana(),
-    talles:"Talles a partir del XXL - Recargo 10% -\nCamisas a partir del talle 48 - Recargo 15% -", obs:"", items:[] };
+    talles:"Talles a partir del XXL - Recargo 10% -\nCamisas a partir del talle 48 - Recargo 15% -", obs:"", items:[],
+    estado:"borrador", eventos:[{ ts:Date.now(), t:"creada", d:"Cotización creada" }] };
+}
+function nombreEstado(e){ var x = ESTADOS.filter(function(p){ return p[0] === e; })[0]; return x ? x[1] : "Borrador"; }
+/* agrega un evento al historial; dos guardados seguidos en pocos minutos cuentan como uno */
+function registrarEvento(t, d){
+  if(!doc.eventos) doc.eventos = [];
+  var ult = doc.eventos[doc.eventos.length-1];
+  if(ult && ult.t === t && t === "guardada" && Date.now() - ult.ts < 10*60e3){ ult.ts = Date.now(); }
+  else doc.eventos.push({ ts:Date.now(), t:t, d:d });
+  if(doc.eventos.length > 40) doc.eventos = doc.eventos.slice(-40);
+  renderTimeline();
+}
+function horaAR(ts){
+  var a = new Date(ts);
+  return a.getDate()+"/"+(a.getMonth()+1)+"/"+a.getFullYear()+" · "+String(a.getHours()).padStart(2,"0")+":"+String(a.getMinutes()).padStart(2,"0");
+}
+var TL_IC = { creada:"i-plus", guardada:"i-save", pdf:"i-down", estado:"i-flag", duplicada:"i-copy" };
+function renderTimeline(){
+  var ev = (doc.eventos||[]).slice().reverse();
+  $("timeline").innerHTML = ev.length ? ev.map(function(e){
+    return '<li><span class="tl-ic"><svg class="ic"><use href="#'+(TL_IC[e.t]||"i-note")+'"/></svg></span>'+
+      '<div><div class="tl-t">'+esc(e.d)+'</div><div class="tl-d">'+horaAR(e.ts)+'</div></div></li>';
+  }).join("") : '<li><span class="tl-ic"><svg class="ic"><use href="#i-note"/></svg></span><div><div class="tl-d">Sin movimientos todavía.</div></div></li>';
+  var g = (doc.eventos||[]).filter(function(e){ return e.t === "guardada"; }).pop();
+  $("savedAt").textContent = g ? "Guardada " + horaAR(g.ts).split(" · ")[1] : "Sin guardar";
+}
+function pintarEstado(){
+  var e = doc.estado || "borrador";
+  $("fEstado").value = e;
+  $("fEstado").className = "chip-select st-" + e;
+  $("hNum").textContent = doc.numero ? "N° " + doc.numero : "";
 }
 function costoLinea(r){ return r.costo ? costoARS(r.mon||"ARS", num(r.costo)) : 0; }
 function lineaTotal(r){ return num(r.cant) * num(r.precio) * (1 - num(r.desc_pct)/100); }
@@ -108,11 +142,12 @@ function renderItems(){
     tr.innerHTML =
       '<td><input class="n" data-k="cant" inputmode="decimal" value="'+esc(r.cant)+'" aria-label="Cantidad"></td>'+
       '<td><input data-k="desc" value="'+esc(r.desc)+'" aria-label="Descripción">'+(r.meta?'<div class="rowmeta">'+esc(r.meta)+'</div>':'')+'</td>'+
+      '<td class="cellcost">'+(cARS>0?fmt(cARS):"—")+'</td>'+
       '<td><input class="n" data-k="margen" inputmode="decimal" value="'+esc(mgTxt)+'" '+(cARS>0?'':'disabled')+' aria-label="Margen del renglón"></td>'+
       '<td><input class="n" data-k="precio" inputmode="decimal" value="'+esc(r.precio)+'" aria-label="Precio unitario"></td>'+
       '<td><input class="n" data-k="desc_pct" inputmode="decimal" value="'+esc(r.desc_pct)+'" aria-label="Descuento"></td>'+
       '<td class="r rowtot" id="rt'+i+'">'+fmt(lineaTotal(r))+'</td>'+
-      '<td><button class="del" data-del="'+i+'" title="Quitar renglón" aria-label="Quitar renglón">✕</button></td>';
+      '<td class="acts"><button class="icon-btn danger" data-del="'+i+'" title="Quitar renglón" aria-label="Quitar renglón"><svg class="ic"><use href="#i-x"/></svg></button></td>';
     tr.querySelectorAll("input").forEach(function(inp){
       inp.addEventListener("input", function(){
         var k = inp.getAttribute("data-k");
@@ -145,13 +180,17 @@ function renderItems(){
 }
 function pintarTotales(){
   var t = totales();
-  $("tNeto").textContent = fmt(t.neto);
-  $("tIva").textContent = fmt(t.iva);
-  $("tTotal").textContent = fmt(t.total);
+  $("tNeto").textContent = "$ " + fmt(t.neto);
+  $("tIva").textContent = "$ " + fmt(t.iva);
+  $("tTotal").textContent = "$ " + fmt(t.total);
   $("tIvaPct").textContent = String(cfg.iva);
   $("tCosto").textContent = t.costo > 0 ? fmt(t.costo) : "—";
   $("tGan").textContent = t.costo > 0 ? fmt(t.ganancia) : "—";
   $("tMg").textContent = (t.costo > 0 && t.netoConCosto > 0) ? ((t.ganancia/t.netoConCosto)*100).toFixed(1) + " %" : "—";
+  var mgPct = (t.costo > 0 && t.netoConCosto > 0) ? (t.ganancia/t.netoConCosto)*100 : 0;
+  var met = $("mgMeter");
+  met.firstElementChild.style.width = Math.max(0, Math.min(100, mgPct)) + "%";
+  met.classList.toggle("low", mgPct > 0 && mgPct < 25);
   $("tMgNota").textContent = (t.costo > 0 && t.nConCosto < t.nTotal)
     ? "Calculado sobre " + t.nConCosto + " de " + t.nTotal + " renglones: el resto se cargó a mano, sin costo."
     : "";
@@ -221,8 +260,8 @@ function renderLista(){
       '<td><input class="n" data-k="margen" inputmode="decimal" value="'+(mg==null?"":mg.toFixed(1))+'" '+(cARS>0?'':'disabled')+' aria-label="Margen"></td>'+
       '<td><input class="n" data-k="precio" inputmode="decimal" value="'+esc(r.precio)+'" aria-label="Precio"></td>'+
       '<td class="r rowtot" id="lp'+i+'">'+fmt(precioLista(r))+'</td>'+
-      '<td class="ord"><button class="del" data-up="'+i+'" title="Subir" aria-label="Subir"'+(i===0?' disabled':'')+'>↑</button>'+
-        '<button class="del" data-ldel="'+i+'" title="Quitar" aria-label="Quitar">✕</button></td>';
+      '<td class="acts"><button class="icon-btn" data-up="'+i+'" title="Subir" aria-label="Subir"'+(i===0?' disabled':'')+'><svg class="ic"><use href="#i-up"/></svg></button>'+
+        '<button class="icon-btn danger" data-ldel="'+i+'" title="Quitar" aria-label="Quitar"><svg class="ic"><use href="#i-x"/></svg></button></td>';
     tr.querySelectorAll("input").forEach(function(inp){
       inp.addEventListener("input", function(){
         var k = inp.getAttribute("data-k");
@@ -251,6 +290,15 @@ function renderLista(){
     });
   });
   $("lPrecioHead").textContent = lista.conIva ? "Precio c/IVA" : "Precio + IVA";
+  resumenLista();
+}
+function resumenLista(){
+  var precios = lista.items.map(precioLista).filter(function(p){ return p > 0; });
+  var mgs = lista.items.map(function(r){ return margenDesdePrecio(costoLinea(r), num(r.precio)); }).filter(function(m){ return m != null; });
+  $("lResN").textContent = String(lista.items.length);
+  $("lResMin").textContent = precios.length ? "$ " + fmt(Math.min.apply(null, precios)) : "—";
+  $("lResMax").textContent = precios.length ? "$ " + fmt(Math.max.apply(null, precios)) : "—";
+  $("lResMg").textContent = mgs.length ? (mgs.reduce(function(a,b){ return a+b; },0)/mgs.length).toFixed(1) + " %" : "—";
 }
 function cargarPropios(){
   var ya = {}; lista.items.forEach(function(r){ ya[normal(r.prod)] = 1; });
@@ -278,19 +326,34 @@ function guardarLista(){
     notas:lista.notas, items:lista.items, ts:Date.now() })
     .then(function(){ enLinea(); toast("Lista guardada."); }, sinGuardar);
 }
-function setModo(m){
-  modo = m;
-  $("modeCot").setAttribute("aria-selected", m==="cot" ? "true" : "false");
-  $("modeLista").setAttribute("aria-selected", m==="lista" ? "true" : "false");
-  $("secCot").hidden = m !== "cot";
-  $("secLista").hidden = m !== "lista";
-  $("q").placeholder = m === "lista" ? "Buscá y tocá + para sumarlo a la lista…" : "Buscar: guante nitrilo, arnés, anteojo…";
-  try{ localStorage.setItem(LS+".modo", m); }catch(e){}
+var VISTAS = { cotizaciones:"viewCotizaciones", cot:"viewCot", lista:"viewLista", proveedores:"viewProveedores", margenes:"viewMargenes", ajustes:"viewAjustes" };
+function setView(v){
+  if(!VISTAS[v]) v = "cotizaciones";
+  vista = v;
+  Object.keys(VISTAS).forEach(function(k){ $(VISTAS[k]).hidden = k !== v; });
+  document.querySelectorAll(".nav-item[data-view]").forEach(function(b){
+    var activo = b.getAttribute("data-view") === v || (v === "cot" && b.getAttribute("data-view") === "cotizaciones");
+    if(activo) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current");
+  });
+  if(v === "cot" || v === "lista"){
+    modo = v;
+    var slot = $(v === "cot" ? "slotCot" : "slotLista");
+    slot.appendChild($("catalogo"));
+    $("catHint").textContent = v === "lista" ? "Tocá + para sumar el producto a la lista." : "Tocá + para sumar el artículo a la cotización.";
+  }
+  if(v === "cotizaciones") renderHistorial(HIST);
+  try{ localStorage.setItem(LS+".vista", v); }catch(e){}
+  window.scrollTo(0, 0);
 }
 
 var CAMPOS = { fNum:"numero", fEmpresa:"empresa", fDireccion:"direccion", fCotizo:"cotizo", fFecha:"fecha", fEntrega:"entrega", fTalles:"talles", fObs:"obs" };
-function formADoc(){ for(var id in CAMPOS) doc[CAMPOS[id]] = $(id).value; }
-function docAForm(){ for(var id in CAMPOS) $(id).value = doc[CAMPOS[id]] || ""; }
+function formADoc(){ for(var id in CAMPOS) doc[CAMPOS[id]] = $(id).value; doc.estado = $("fEstado").value || "borrador"; }
+function docAForm(){
+  for(var id in CAMPOS) $(id).value = doc[CAMPOS[id]] || "";
+  if(!doc.estado) doc.estado = "borrador";
+  if(!doc.eventos) doc.eventos = [];
+  pintarEstado(); renderTimeline();
+}
 
 /* ============ catálogo: filtros y render ============ */
 var filtroProv = "", filtroRubro = "", filtroQ = "", orden = "rel";
@@ -384,17 +447,16 @@ function agregar(it){
 /* ============ listas ============ */
 function renderListas(){
   var act = LISTAS.filter(function(L){ return L.activa; });
-  $("listCount").textContent = LISTAS.length + " listas · " + act.length + " activas";
+  $("listCount").textContent = LISTAS.length + (LISTAS.length===1?" lista · ":" listas · ") + act.length + (act.length===1?" activa en el catálogo":" activas en el catálogo");
   $("listasList").innerHTML = LISTAS.map(function(L, i){
-    return '<div class="lrow">'+
-      '<div class="grow"><div class="lname">'+esc(L.nombre)+'</div>'+
-      '<div class="lmeta">'+esc(L.prov)+' · '+(L.items?L.items.length:0)+' artículos · '+
-        (L.moneda==="USD"?"U$S":L.moneda==="ARS"?"$":"$ y U$S")+(L.fecha? ' · '+esc(L.fecha):'')+'</div></div>'+
-      '<div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end">'+
-      '<label class="sw"><input type="checkbox" data-act="'+i+'" '+(L.activa?"checked":"")+'> activa</label>'+
-      '<button class="btn btn-sm btn-danger" data-delL="'+i+'">Borrar</button>'+
-      '</div></div>';
-  }).join("") || '<div class="empty">No hay listas cargadas.</div>';
+    return '<div class="drow">'+
+      '<div><div class="lname">'+esc(L.nombre)+'</div><div class="lmeta">'+esc(L.prov)+(L.fecha? ' · cargada '+esc(fechaAR(L.fecha)||L.fecha):'')+'</div></div>'+
+      '<span class="mono hide-sm">'+(L.items?L.items.length:0)+'</span>'+
+      '<span class="hide-sm">'+(L.moneda==="USD"?"Dólares":L.moneda==="ARS"?"Pesos":"Pesos y dólares")+'</span>'+
+      '<label class="switch hide-sm"><input type="checkbox" data-act="'+i+'" '+(L.activa?"checked":"")+' aria-label="Lista activa"></label>'+
+      '<button class="icon-btn danger" data-delL="'+i+'" title="Borrar lista" aria-label="Borrar lista"><svg class="ic"><use href="#i-x"/></svg></button>'+
+      '</div>';
+  }).join("") || '<div class="empty">Todavía no hay listas. Tocá <strong>Importar lista</strong> para cargar la primera.</div>';
   $("listasList").querySelectorAll("[data-act]").forEach(function(c){
     c.addEventListener("change", function(){
       var L = LISTAS[parseInt(c.getAttribute("data-act"),10)];
@@ -945,13 +1007,15 @@ function guardarArchivo(nombre,bytes){
 }
 function slug(s){ return String(s||"").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,""); }
 function descargarPDF(){
-  if(modo==="lista") return descargarListaPDF();
   formADoc();
   if(!doc.items.length){ toast("Agregá al menos un renglón antes de generar el PDF."); return; }
   var bytes;
   try{ bytes=construirPDF(doc,totales()); }catch(e){ toast("No se pudo armar el PDF: "+e.message); return; }
   guardarArchivo("cotizacion-"+(doc.numero||"s-n")+(doc.empresa?"-"+slug(doc.empresa):"")+".pdf", bytes);
+  registrarEvento("pdf", "PDF descargado");
+  if(yaGuardada()) guardarCotizacion(true); else guardarBorrador();
 }
+function yaGuardada(){ return HIST.some(function(h){ return String(h.numero) === String(doc.numero); }); }
 function descargarListaPDF(){
   formALista();
   if(!lista.items.length){ toast("Agregá al menos un producto a la lista."); return; }
@@ -1061,49 +1125,102 @@ function cargarEstado(){
     toast("No se pudieron cargar los datos (" + ((e&&e.code)||"error") + "). Recargá la página.");
   });
 }
-function guardarCotizacion(){
+function guardarCotizacion(silencioso){
   formADoc();
   if(!doc.numero){ toast("Poné un número de cotización antes de guardar."); return; }
+  if(silencioso !== true) registrarEvento("guardada", "Cotización guardada");
   guardarBorrador();
   var t = totales(), id = String(doc.numero).replace(/[^A-Za-z0-9_.\-]/g,"_") || "sn";
   var h = {
     numero:doc.numero, empresa:doc.empresa, direccion:doc.direccion, cotizo:doc.cotizo,
     fecha:doc.fecha, entrega:doc.entrega, talles:doc.talles, obs:doc.obs, items:doc.items,
+    estado:doc.estado||"borrador", eventos:doc.eventos||[],
     neto:t.neto, iva:t.iva, total:t.total, costo:t.costo, ganancia:t.ganancia,
     tc:cfg.tc, ivaPct:cfg.iva, ts:Date.now()
   };
   api("PUT", docPath("cotizaciones", id), h).then(function(){
     enLinea();
-    renderHistorial([h].concat(HIST.filter(function(x){ return String(x.numero) !== String(h.numero); })));
-    toast("Cotización "+doc.numero+" guardada.");
+    HIST = [h].concat(HIST.filter(function(x){ return String(x.numero) !== String(h.numero); }));
+    renderHistorial(HIST);
+    if(silencioso !== true) toast("Cotización "+doc.numero+" guardada.");
   }, sinGuardar);
 }
 function renderHistorial(list){
-  HIST = (list||[]).slice().sort(function(a,b){ return (b.ts||0) - (a.ts||0); }).slice(0,60);
-  var el=$("histList");
-  if(!HIST.length){ el.innerHTML='<div class="empty">Las cotizaciones que guardes aparecen acá.</div>'; return; }
-  el.innerHTML = HIST.map(function(h,i){
-    return '<div class="hist-item" data-h="'+i+'" role="button" tabindex="0">'+
-      '<span class="hist-n">#'+esc(h.numero)+'</span>'+
-      '<span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(h.empresa||"—")+
-      '<br><span style="font-size:11px;color:var(--ink-3)">'+esc(fechaAR(h.fecha))+'</span></span>'+
-      '<span class="hist-t">'+fmt(h.total||0)+'</span></div>';
+  HIST = (list||[]).slice().sort(function(a,b){ return (b.ts||0) - (a.ts||0); });
+  var cuenta = { "":HIST.length };
+  ESTADOS.forEach(function(e){ cuenta[e[0]] = 0; });
+  HIST.forEach(function(h){ var e = h.estado || "borrador"; cuenta[e] = (cuenta[e]||0) + 1; });
+  $("navCountCot").textContent = HIST.length ? String(HIST.length) : "";
+
+  var mes = hoy().slice(0,7), delMes = HIST.filter(function(h){ return String(h.fecha||"").slice(0,7) === mes; });
+  var totMes = delMes.reduce(function(a,h){ return a + (h.total||0); }, 0);
+  $("cotSub").textContent = HIST.length
+    ? delMes.length + (delMes.length===1?" cotización":" cotizaciones") + " este mes por $ " + fmt(totMes) + " · " + cuenta.aceptada + (cuenta.aceptada===1?" aceptada":" aceptadas") + " en total"
+    : "Todavía no guardaste ninguna cotización.";
+
+  $("estadoTabs").innerHTML = [["","Todas"]].concat(ESTADOS).map(function(e){
+    return '<button class="tab" role="tab" data-estado="'+e[0]+'" aria-selected="'+(filtroEstado===e[0])+'">'+e[1]+'<span class="n">'+(cuenta[e[0]]||0)+'</span></button>';
   }).join("");
-  el.querySelectorAll("[data-h]").forEach(function(b){
-    var abrir=function(){ cargar(HIST[parseInt(b.getAttribute("data-h"),10)]); };
-    b.addEventListener("click", abrir);
-    b.addEventListener("keydown", function(e){ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); abrir(); } });
+
+  var terms = normal(filtroCot).split(/\s+/).filter(Boolean);
+  var vis = HIST.filter(function(h){
+    if(filtroEstado && (h.estado||"borrador") !== filtroEstado) return false;
+    var hay = normal((h.numero||"")+" "+(h.empresa||"")+" "+(h.direccion||""));
+    return terms.every(function(t){ return hay.indexOf(t) > -1; });
+  });
+
+  var el = $("histList");
+  if(!vis.length){
+    el.innerHTML = '<div class="blank" style="grid-column:1 / -1"><svg class="ic" style="width:28px;height:28px"><use href="#i-quotes"/></svg>'+
+      '<p>'+(HIST.length ? "Ninguna cotización coincide con ese filtro." : "Cuando guardes una cotización va a aparecer acá, con su estado y su total.")+'</p>'+
+      (HIST.length ? "" : '<button class="btn btn-dark" data-nueva>Crear la primera</button>')+'</div>';
+    var b = el.querySelector("[data-nueva]"); if(b) b.addEventListener("click", nuevaCotizacion);
+    return;
+  }
+  el.innerHTML = vis.map(function(h){
+    var e = h.estado || "borrador";
+    var mg = (h.costo > 0 && h.neto > 0) ? ((h.ganancia||0) / h.neto * 100).toFixed(1) + " %" : "—";
+    return '<button class="qcard" data-num="'+esc(h.numero)+'">'+
+      '<div class="qtop"><span>'+(h.ts ? horaAR(h.ts) : esc(fechaAR(h.fecha)))+'</span><span class="chip st-'+e+'">'+nombreEstado(e)+'</span></div>'+
+      '<div class="qid"><strong>N° '+esc(h.numero)+'</strong></div>'+
+      '<div class="qclient">'+esc(h.empresa||"Sin cliente")+'</div>'+
+      '<div class="qrows">'+
+        '<div class="qrow"><span>Renglones</span><b>'+((h.items||[]).length)+'</b></div>'+
+        '<div class="qrow"><span>Entrega</span><b>'+esc(fechaAR(h.entrega)||"—")+'</b></div>'+
+        '<div class="qrow"><span>Margen</span><b>'+mg+'</b></div>'+
+      '</div>'+
+      '<div class="qtotal"><span><svg class="ic"><use href="#i-quotes"/></svg>Total con IVA</span><b>$ '+fmt(h.total||0)+'</b></div>'+
+    '</button>';
+  }).join("");
+  el.querySelectorAll("[data-num]").forEach(function(b){
+    b.addEventListener("click", function(){
+      var n = b.getAttribute("data-num");
+      cargar(HIST.filter(function(h){ return String(h.numero) === n; })[0]);
+    });
   });
 }
 function cargar(h){
   if(!h) return;
   doc = { numero:h.numero||"", empresa:h.empresa||"", direccion:h.direccion||"", cotizo:h.cotizo||"",
     fecha:h.fecha||hoy(), entrega:h.entrega||manana(), talles:h.talles||"", obs:h.obs||"",
+    estado:h.estado||"borrador", eventos:Array.isArray(h.eventos)?h.eventos.slice():[],
     items:(h.items||[]).map(function(r){ return { cant:r.cant, desc:r.desc, costo:r.costo||0, mon:r.mon||"ARS",
       margen:r.margen==null?null:r.margen, precio:r.precio, desc_pct:r.desc_pct, meta:r.meta||"" }; }) };
   docAForm(); renderItems(); guardarBorrador();
-  toast("Cotización "+doc.numero+" cargada.");
-  window.scrollTo({top:0,behavior:"smooth"});
+  setView("cot");
+}
+function nuevaCotizacion(){
+  var n = proximoNumero(); doc = docVacio(n); docAForm(); renderItems(); guardarBorrador();
+  setView("cot"); $("fEmpresa").focus(); toast("Nueva cotización N° " + n);
+}
+function duplicarCotizacion(){
+  formADoc();
+  var origen = doc.numero, n = proximoNumero();
+  var copia = JSON.parse(JSON.stringify(doc));
+  copia.numero = String(n); copia.estado = "borrador"; copia.fecha = hoy(); copia.entrega = manana();
+  copia.eventos = [{ ts:Date.now(), t:"duplicada", d:"Copia de la N° " + origen }];
+  doc = copia; docAForm(); renderItems(); guardarBorrador();
+  toast("Duplicada como N° " + n + ". Guardala para conservarla.");
 }
 function proximoNumero(){
   var max=0;
@@ -1115,10 +1232,15 @@ function proximoNumero(){
 /* ================= arranque ================= */
 function pintarParams(){
   $("pTc").value=cfg.tc; $("pMargen").value=cfg.margen; $("pIva").value=cfg.iva; $("pRedondeo").value=String(cfg.redondeo);
+  $("paramsLine").textContent = "Dólar $ " + cfg.tc + " · margen " + cfg.margen + " % · IVA " + cfg.iva + " %";
   renderCatalogo(); pintarTotales(); renderMargenes();
 }
 function start(){
-  if(window.LOGO && window.LOGO.jpg) $("logoImg").src = "data:image/jpeg;base64," + window.LOGO.jpg;
+  if(window.LOGO && window.LOGO.jpg){
+    var src = "data:image/jpeg;base64," + window.LOGO.jpg;
+    $("logoImg").src = src;
+    document.querySelectorAll(".band-logo").forEach(function(im){ im.src = src; });
+  }
 
   var saved = leerBorrador();
   if(saved){
@@ -1141,15 +1263,31 @@ function start(){
   pintarParams();
   docAForm(); renderItems(); renderCatalogo(); renderListas(); renderMargenes();
   listaAForm(); renderLista();
-  var modoGuardado = "cot";
-  try{ modoGuardado = localStorage.getItem(LS+".modo") || "cot"; }catch(e){}
-  setModo(modoGuardado === "lista" ? "lista" : "cot");
+  var vistaGuardada = "cotizaciones";
+  try{ vistaGuardada = localStorage.getItem(LS+".vista") || "cotizaciones"; }catch(e){}
+  setView(vistaGuardada);
+  document.addEventListener("click", function(e){
+    var nav = e.target.closest("[data-view]");
+    if(nav){ e.preventDefault(); setView(nav.getAttribute("data-view")); return; }
+    var tg = e.target.closest("[data-cat-toggle]");
+    if(tg){ $("catalogo").parentNode.classList.toggle("open"); return; }
+    var tab = e.target.closest("#estadoTabs [data-estado]");
+    if(tab){ filtroEstado = tab.getAttribute("data-estado"); renderHistorial(HIST); }
+  });
+  var tqc = null;
+  $("qCot").addEventListener("input", function(){ clearTimeout(tqc); tqc = setTimeout(function(){ filtroCot = $("qCot").value; renderHistorial(HIST); }, 120); });
+  $("fEstado").addEventListener("change", function(){
+    doc.estado = $("fEstado").value; pintarEstado();
+    registrarEvento("estado", "Estado: " + nombreEstado(doc.estado));
+    if(yaGuardada()) guardarCotizacion(true); else guardarBorrador();
+  });
+  $("fNum").addEventListener("input", function(){ doc.numero = $("fNum").value; pintarEstado(); });
+  $("btnDuplicar").addEventListener("click", duplicarCotizacion);
+  $("btnNueva2").addEventListener("click", nuevaCotizacion);
 
   Object.keys(CAMPOS).forEach(function(id){ $(id).addEventListener("input", guardarBorrador); });
   Object.keys(CAMPOS_LISTA).forEach(function(id){ $(id).addEventListener("input", guardarBorrador); });
   $("lIva").addEventListener("change", function(){ formALista(); renderLista(); guardarBorrador(); });
-  $("modeCot").addEventListener("click", function(){ setModo("cot"); });
-  $("modeLista").addEventListener("click", function(){ setModo("lista"); });
   $("btnPropios").addEventListener("click", cargarPropios);
   $("btnTraerCot").addEventListener("click", traerDeCotizacion);
   $("btnLRenglon").addEventListener("click", function(){
@@ -1178,35 +1316,19 @@ function start(){
   $("rubro").addEventListener("change", function(){ filtroRubro=$("rubro").value; renderCatalogo(); });
   $("orden").addEventListener("change", function(){ orden=$("orden").value; renderCatalogo(); });
 
-  var TABS=[["tabCat","paneCat"],["tabList","paneList"],["tabMarg","paneMarg"],["tabHist","paneHist"]];
-  TABS.forEach(function(t){
-    $(t[0]).addEventListener("click", function(){
-      TABS.forEach(function(o){ $(o[0]).setAttribute("aria-selected", o[0]===t[0]?"true":"false"); $(o[1]).hidden = o[0]!==t[0]; });
-    });
-  });
-
   $("btnRenglon").addEventListener("click", function(){
     doc.items.push({ cant:1, desc:"", costo:0, mon:"ARS", margen:null, precio:0, desc_pct:0, meta:"" });
     renderItems();
     var ins=$("tbody").querySelectorAll('input[data-k="desc"]');
     if(ins.length) ins[ins.length-1].focus();
   });
-  $("btnNueva").addEventListener("click", function(){
-    if(modo === "lista"){
-      if(lista.items.length && !confirm("¿Empezar una lista nueva? Se quitan los productos cargados.")) return;
-      lista = listaVacia(); listaAForm(); renderLista(); guardarBorrador();
-      $("lPara").focus(); toast("Lista de precios nueva."); return;
-    }
-    var n=proximoNumero(); doc=docVacio(n); docAForm(); renderItems(); guardarBorrador();
-    $("fEmpresa").focus(); toast("Nueva cotización N° "+n);
-  });
-  $("btnGuardar").addEventListener("click", function(){ if(modo === "lista") guardarLista(); else guardarCotizacion(); });
-  $("btnGuardar2").addEventListener("click", guardarCotizacion);
+  $("btnNueva").addEventListener("click", nuevaCotizacion);
+  $("btnGuardar").addEventListener("click", function(){ guardarCotizacion(); });
   $("btnPdf").addEventListener("click", descargarPDF);
-  $("btnPdf2").addEventListener("click", descargarPDF);
 
   // importador
   $("btnNuevaLista").addEventListener("click", function(){
+    setView("proveedores");
     var v = $("impForm").hidden;
     $("impForm").hidden = !v;
     if(v) $("iNombre").focus();
