@@ -14,6 +14,7 @@ import { externalNextPage, openExternalPage } from './utils/nextPage'
 import Contenido from './pages/Contenido'
 import LinkedIn from './pages/LinkedIn'
 import GoogleAds from './pages/GoogleAds'
+import InformeML from './pages/InformeML'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import { getMLQuestions, subscribePush } from './api/client'
 
@@ -108,6 +109,7 @@ function ProtectedApp() {
             <Route path="/dashboard"   element={<Dashboard />} />
             <Route path="/leads"       element={<Leads />} />
             <Route path="/mercadolibre" element={<MercadoLibre />} />
+            <Route path="/informe-ml"  element={<InformeML />} />
             <Route path="/whatsapp"    element={<WhatsApp />} />
             <Route path="/settings"    element={<Settings />} />
             <Route path="/contenido"   element={<Contenido />} />

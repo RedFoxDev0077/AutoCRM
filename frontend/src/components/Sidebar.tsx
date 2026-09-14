@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom'
-import { LayoutDashboard, MapPin, ShoppingBag, MessageCircle, Settings, X, LogOut, Sparkles, Linkedin, BarChart2, Calculator } from 'lucide-react'
+import { LayoutDashboard, MapPin, ShoppingBag, MessageCircle, Settings, X, LogOut, Sparkles, Linkedin, BarChart2, Calculator, FileSpreadsheet } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import LogoIndseg from './LogoIndseg'
 
@@ -7,6 +7,7 @@ const navMain = [
   { to: '/dashboard',    icon: LayoutDashboard, label: 'Dashboard'     },
   { to: '/leads',        icon: MapPin,          label: 'Leads'         },
   { to: '/mercadolibre', icon: ShoppingBag,     label: 'Mercado Libre' },
+  { to: '/informe-ml',   icon: FileSpreadsheet, label: 'Informe ML'    },
   { to: '/whatsapp',     icon: MessageCircle,   label: 'WhatsApp'      },
 ]
 

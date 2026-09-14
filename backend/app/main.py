@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from app.database import init_db, AsyncSessionLocal
 from app.config import get_settings
 from app.routers import dashboard, kommo, whatsapp, leads, mercadolibre, push, auth as auth_router
-from app.routers import social, linkedin, google_ads, social_publish, cotizador
+from app.routers import social, linkedin, google_ads, social_publish, cotizador, ml_report
 
 
 async def _poll_ml_and_push():
@@ -43,9 +43,12 @@ async def _poll_ml_and_push():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+    from app.services.ml_report.runner import scheduler_loop
     task = asyncio.create_task(_poll_ml_and_push())
+    report_task = asyncio.create_task(scheduler_loop())
     yield
     task.cancel()
+    report_task.cancel()
 
 
 app = FastAPI(title="AutoCRM API", version="1.0.0", lifespan=lifespan)
@@ -98,6 +101,7 @@ app.include_router(social_publish.router, prefix="/api")
 app.include_router(linkedin.router, prefix="/api")
 app.include_router(google_ads.router, prefix="/api")
 app.include_router(cotizador.router, prefix="/api")
+app.include_router(ml_report.router, prefix="/api")
 
 _UPLOAD_DIR = "/app/data/uploads"
 os.makedirs(_UPLOAD_DIR, exist_ok=True)
