@@ -8,7 +8,7 @@ from sqlalchemy import distinct, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.models.ml_report import MLAdSnapshot, MLReport
+from app.models.ml_report import MLAdSnapshot, MLPositionSnapshot, MLReport
 from app.services.ml_report import runner
 from app.services.ml_report.analysis import next_run
 from app.services.ml_report.collector import AR
@@ -30,11 +30,18 @@ def _out(r: MLReport) -> dict:
 async def list_reports(db: AsyncSession = Depends(get_db)):
     reports = (await db.execute(select(MLReport).order_by(MLReport.created_at.desc()).limit(20))).scalars().all()
     fechas = await db.scalar(select(func.count(distinct(MLAdSnapshot.fecha))))
+    ads = dict((await db.execute(
+        select(MLAdSnapshot.fecha, func.count()).group_by(MLAdSnapshot.fecha))).all())
+    pos = dict((await db.execute(
+        select(MLPositionSnapshot.fecha, func.count()).group_by(MLPositionSnapshot.fecha))).all())
+    historial = [{"fecha": f, "anuncios": ads.get(f, 0), "posiciones": pos.get(f, 0)}
+                 for f in sorted(set(ads) | set(pos), reverse=True)[:12]]
     return {
         "connected": ml_is_connected(),
         "running": runner.is_running(),
         "next_run": next_run(datetime.now(AR)).isoformat(),
         "history_dates": fechas or 0,
+        "historial": historial,
         "reports": [_out(r) for r in reports],
     }
 

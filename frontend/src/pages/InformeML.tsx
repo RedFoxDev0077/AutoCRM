@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   FileSpreadsheet, RefreshCw, Download, Upload, AlertTriangle, CheckCircle2, Clock, Lightbulb,
-  TrendingUp, Target, MousePointerClick, ShoppingCart, Megaphone, Percent,
+  TrendingUp, Target, MousePointerClick, ShoppingCart, Megaphone, Percent, ChevronLeft, ChevronRight, History, X,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../api/client'
@@ -20,7 +20,11 @@ type Report = {
   id: number; run_date: string; trigger: string; status: 'running' | 'ok' | 'parcial' | 'error'
   created_at: string; finished_at: string | null; has_file: boolean; summary: Summary
 }
-type State = { connected: boolean; running: boolean; next_run: string; history_dates: number; reports: Report[] }
+type Historial = { fecha: string; anuncios: number; posiciones: number }
+type State = { connected: boolean; running: boolean; next_run: string; history_dates: number; historial: Historial[]; reports: Report[] }
+type ImportResult = { archivo: string; ok: boolean; texto: string }
+
+const PAGE_SIZE = 5
 
 const money = (n?: number | null) =>
   n == null ? '—' : '$ ' + n.toLocaleString('es-AR', { maximumFractionDigits: 0 })
@@ -73,10 +77,37 @@ function Tile({ icon: Icon, label, value, sub }: { icon: typeof TrendingUp; labe
   )
 }
 
+function HistorialCard({ items }: { items: Historial[] }) {
+  return (
+    <div className="card p-5 self-start">
+      <div className="flex items-center gap-2 mb-3">
+        <History size={15} className="text-slate-400" />
+        <h3 className="font-semibold text-slate-800 text-sm">Histórico cargado</h3>
+      </div>
+      {items.length === 0 ? (
+        <p className="text-sm text-slate-400">
+          Todavía no hay datos. Importá «Historico ML - acumulado.csv» y «Posiciones ML - acumulado.csv», o esperá la primera corrida.
+        </p>
+      ) : (
+        <ul className="space-y-2">
+          {items.map(h => (
+            <li key={h.fecha} className="flex items-center justify-between text-sm">
+              <span className="text-slate-700 tabular-nums">{fechaCorta(h.fecha)}</span>
+              <span className="text-xs text-slate-400 tabular-nums">{h.anuncios} anuncios · {h.posiciones} posiciones</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
 export default function InformeML() {
   const [state, setState] = useState<State | null>(null)
   const [loading, setLoading] = useState(true)
   const [importing, setImporting] = useState(false)
+  const [resultados, setResultados] = useState<ImportResult[]>([])
+  const [page, setPage] = useState(0)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const load = async () => {
@@ -91,6 +122,10 @@ export default function InformeML() {
   }
 
   useEffect(() => { load() }, [])
+
+  // a new report starts again on the first page of actions
+  const lastId = state?.reports.find(r => r.status !== 'running')?.id
+  useEffect(() => { setPage(0) }, [lastId])
 
   // while a report is being generated, check every 5 seconds
   useEffect(() => {
@@ -112,23 +147,38 @@ export default function InformeML() {
   const importar = async (files: FileList | null) => {
     if (!files?.length) return
     setImporting(true)
-    try {
-      for (const f of Array.from(files)) {
+    setResultados([])
+    const res: ImportResult[] = []
+    for (const f of Array.from(files)) {
+      try {
         const body = new FormData()
         body.append('file', f)
         const { data } = await api.post('/ml-report/historial', body)
-        toast.success(`${f.name}: ${data.importadas} filas importadas${data.omitidas ? `, ${data.omitidas} ya estaban` : ''}`)
+        const tipo = data.tipo === 'posiciones' ? 'posiciones' : 'filas de anuncios'
+        res.push({
+          archivo: f.name, ok: true,
+          texto: data.importadas
+            ? `Se importaron ${data.importadas} ${tipo}${data.omitidas ? ` (${data.omitidas} ya estaban cargadas)` : ''}.`
+            : `No había nada nuevo: las ${data.omitidas} filas ya estaban cargadas.`,
+        })
+      } catch (e: any) {
+        res.push({ archivo: f.name, ok: false, texto: e?.response?.data?.detail ?? 'No se pudo importar el archivo.' })
       }
-      load()
-    } catch (e: any) {
-      toast.error(e?.response?.data?.detail ?? 'No se pudo importar el archivo')
-    } finally {
-      setImporting(false)
-      if (fileRef.current) fileRef.current.value = ''
     }
+    setResultados(res)
+    const bien = res.filter(r => r.ok).length
+    if (bien === res.length) toast.success(bien === 1 ? 'Archivo importado' : `${bien} archivos importados`)
+    else toast.error('Algún archivo no se pudo importar')
+    setImporting(false)
+    if (fileRef.current) fileRef.current.value = ''
+    load()
   }
 
   const last = state?.reports.find(r => r.status !== 'running')
+  const acciones = last?.summary.acciones ?? []
+  const pages = Math.max(1, Math.ceil(acciones.length / PAGE_SIZE))
+  const pageSafe = Math.min(page, pages - 1)
+  const visibles = acciones.slice(pageSafe * PAGE_SIZE, (pageSafe + 1) * PAGE_SIZE)
   const running = state?.running || state?.reports[0]?.status === 'running'
   const m = last?.summary.metricas ?? {}
 
@@ -168,16 +218,42 @@ export default function InformeML() {
         </div>
       )}
 
+      {resultados.length > 0 && (
+        <div className="card p-4 space-y-2">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-semibold text-slate-800">Resultado de la importación</p>
+            <button onClick={() => setResultados([])} className="text-slate-400 hover:text-slate-600 p-1" aria-label="Cerrar">
+              <X size={15} />
+            </button>
+          </div>
+          {resultados.map((r, i) => (
+            <div key={i} className={`flex gap-2 items-start rounded-xl px-3 py-2 text-sm ${r.ok ? 'bg-emerald-50 text-emerald-800' : 'bg-red-50 text-red-700'}`}>
+              {r.ok ? <CheckCircle2 size={15} className="mt-0.5 shrink-0" /> : <AlertTriangle size={15} className="mt-0.5 shrink-0" />}
+              <span><b>{r.archivo}:</b> {r.texto}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {importing && (
+        <div className="card p-4 flex items-center gap-2 text-sm text-slate-600">
+          <RefreshCw size={14} className="animate-spin" /> Importando el histórico…
+        </div>
+      )}
+
       {loading && <div className="card p-10 text-center text-slate-400 text-sm">Cargando…</div>}
 
       {!loading && !last && !running && (
-        <div className="card p-10 text-center space-y-2">
+        <div className="grid lg:grid-cols-3 gap-5">
+        <div className="card p-10 text-center space-y-2 lg:col-span-2">
           <FileSpreadsheet size={28} className="mx-auto text-slate-300" />
           <p className="text-slate-600 font-medium">Todavía no hay informes</p>
           <p className="text-sm text-slate-400 max-w-md mx-auto">
             El primero se genera el próximo lunes o jueves. Si tenés los CSV que acumulaba la tarea de Claude, importalos antes para que
             el informe compare contra esas corridas.
           </p>
+        </div>
+        <HistorialCard items={state?.historial ?? []} />
         </div>
       )}
 
@@ -246,13 +322,14 @@ export default function InformeML() {
             <div className="card lg:col-span-2 overflow-hidden">
               <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between">
                 <h3 className="font-semibold text-slate-800 text-sm">Acciones sugeridas</h3>
-                <span className="text-xs text-slate-400">{last.summary.acciones?.length ?? 0}</span>
+                <span className="text-xs text-slate-400">{acciones.length}</span>
               </div>
-              {(last.summary.acciones ?? []).length === 0 ? (
+              {acciones.length === 0 ? (
                 <p className="p-5 text-sm text-slate-400">Sin acciones urgentes en esta corrida.</p>
               ) : (
+                <>
                 <ul className="divide-y divide-slate-100">
-                  {last.summary.acciones!.map((a, i) => (
+                  {visibles.map((a, i) => (
                     <li key={i} className="px-5 py-3 flex gap-3">
                       <span className={`badge h-fit shrink-0 ${PRIO[a.prioridad]}`}>{a.prioridad}</span>
                       <div className="min-w-0">
@@ -263,11 +340,36 @@ export default function InformeML() {
                     </li>
                   ))}
                 </ul>
+                {pages > 1 && (
+                  <div className="px-5 py-3 border-t border-slate-100 flex items-center justify-between gap-3">
+                    <span className="text-xs text-slate-500 tabular-nums">
+                      {pageSafe * PAGE_SIZE + 1}–{Math.min((pageSafe + 1) * PAGE_SIZE, acciones.length)} de {acciones.length}
+                    </span>
+                    <div className="flex items-center gap-1">
+                      <button onClick={() => setPage(pageSafe - 1)} disabled={pageSafe === 0}
+                        className="btn-ghost text-xs px-2 py-1.5 disabled:opacity-40" aria-label="Página anterior">
+                        <ChevronLeft size={14} />
+                      </button>
+                      {Array.from({ length: pages }, (_, i) => (
+                        <button key={i} onClick={() => setPage(i)} aria-current={i === pageSafe ? 'page' : undefined}
+                          className={`w-7 h-7 rounded-lg text-xs font-semibold tabular-nums transition-colors ${i === pageSafe ? 'bg-slate-800 text-white' : 'text-slate-500 hover:bg-slate-100'}`}>
+                          {i + 1}
+                        </button>
+                      ))}
+                      <button onClick={() => setPage(pageSafe + 1)} disabled={pageSafe >= pages - 1}
+                        className="btn-ghost text-xs px-2 py-1.5 disabled:opacity-40" aria-label="Página siguiente">
+                        <ChevronRight size={14} />
+                      </button>
+                    </div>
+                  </div>
+                )}
+                </>
               )}
             </div>
 
-            {/* Catalog alerts */}
-            <div className="card p-5 self-start">
+            {/* Catalog alerts + loaded history */}
+            <div className="space-y-5 self-start">
+            <div className="card p-5">
               <h3 className="font-semibold text-slate-800 text-sm mb-3">Alertas del catálogo</h3>
               <ul className="space-y-2">
                 {ALERTAS.filter(([k]) => last.summary.alertas?.[k] != null).map(([k, label]) => {
@@ -280,6 +382,8 @@ export default function InformeML() {
                   )
                 })}
               </ul>
+            </div>
+            <HistorialCard items={state?.historial ?? []} />
             </div>
           </div>
         </>
