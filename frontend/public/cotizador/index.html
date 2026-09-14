@@ -1,0 +1,486 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Cotizador INDSEG</title>
+<link rel="icon" href="/icon-192.png">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+:root{
+  --ground:#f1efec; --surface:#ffffff; --surface-2:#faf8f6; --surface-3:#f4f1ee;
+  --line:#dbd5cf; --line-strong:#b9b1aa;
+  --ink:#1d1a18; --ink-2:#5b544e; --ink-3:#8b837c;
+  --accent:#b5332d; --accent-ink:#ffffff; --accent-soft:#f7e8e6;
+  --ok:#2c6a4d; --ok-soft:#e6f1ea;
+  --warn:#8a5a10; --warn-soft:#f8efdd;
+  --band:#2b2724; --cream:#e8e3dd;
+  --shadow:0 1px 2px rgba(29,26,24,.06), 0 8px 24px -12px rgba(29,26,24,.18);
+  --r:6px;
+  --display:"Archivo","Helvetica Neue",Arial,sans-serif;
+  --body:"IBM Plex Sans","Helvetica Neue",Arial,sans-serif;
+  --mono:"IBM Plex Mono","SFMono-Regular",Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --ground:#161412; --surface:#1f1c1a; --surface-2:#252220; --surface-3:#2b2724;
+    --line:#35302c; --line-strong:#4e4740;
+    --ink:#efebe7; --ink-2:#b4aca5; --ink-3:#867e77;
+    --accent:#dd6a5f; --accent-ink:#20100e; --accent-soft:#3a2220;
+    --ok:#79c49d; --ok-soft:#1e2d26;
+    --warn:#d9a552; --warn-soft:#2d2518;
+    --shadow:0 1px 2px rgba(0,0,0,.45), 0 8px 24px -12px rgba(0,0,0,.75);
+  }
+}
+:root[data-theme="dark"]{
+  --ground:#161412; --surface:#1f1c1a; --surface-2:#252220; --surface-3:#2b2724;
+  --line:#35302c; --line-strong:#4e4740;
+  --ink:#efebe7; --ink-2:#b4aca5; --ink-3:#867e77;
+  --accent:#dd6a5f; --accent-ink:#20100e; --accent-soft:#3a2220;
+  --ok:#79c49d; --ok-soft:#1e2d26;
+  --warn:#d9a552; --warn-soft:#2d2518;
+  --shadow:0 1px 2px rgba(0,0,0,.45), 0 8px 24px -12px rgba(0,0,0,.75);
+}
+*{box-sizing:border-box}
+body{background:var(--ground);color:var(--ink);font-family:var(--body);font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased}
+h1,h2,h3{font-family:var(--display);margin:0;text-wrap:balance}
+button,input,select,textarea{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+.topbar{position:sticky;top:0;z-index:30;background:var(--surface);border-bottom:1px solid var(--line)}
+.topbar-in{max-width:1500px;margin:0 auto;padding:9px 20px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.logo{height:34px;width:auto;border-radius:3px;display:block}
+.logo-sub{font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin-top:4px;white-space:nowrap}
+.spacer{flex:1 1 auto}
+.status{font-size:12px;color:var(--ink-3);display:flex;align-items:center;gap:6px}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--line-strong);flex:none}
+.dot.on{background:var(--ok)}
+
+.btn{border:1px solid var(--line-strong);background:var(--surface);border-radius:var(--r);padding:7px 13px;cursor:pointer;font-weight:500;font-size:13px;transition:background .12s,border-color .12s}
+.btn:hover{background:var(--surface-3)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn-primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:600}
+.btn-primary:hover{filter:brightness(1.08);background:var(--accent)}
+.btn-sm{padding:4px 9px;font-size:12px}
+.btn-ghost{border-color:transparent;background:transparent;color:var(--ink-2)}
+.btn-ghost:hover{background:var(--surface-3);color:var(--ink)}
+.btn-danger{color:var(--accent);border-color:var(--line)}
+.btn-danger:hover{background:var(--accent-soft)}
+
+.wrap{max-width:1500px;margin:0 auto;padding-inline:20px;padding-block:18px 56px;display:grid;grid-template-columns:minmax(0,1fr) 410px;gap:20px;align-items:start}
+@media (max-width:1120px){ .wrap{grid-template-columns:minmax(0,1fr)} }
+
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow)}
+.panel + .panel{margin-top:16px}
+.panel-head{display:flex;align-items:center;gap:10px;padding:11px 16px;border-bottom:1px solid var(--line)}
+.panel-title{font-family:var(--display);font-size:11px;font-weight:600;letter-spacing:.13em;text-transform:uppercase;color:var(--ink-3)}
+.panel-body{padding:16px}
+
+.params{display:grid;grid-template-columns:repeat(auto-fit,minmax(126px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.param{background:var(--surface);padding:9px 13px}
+.param label{display:block;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);font-weight:600;margin-bottom:3px}
+.param input,.param select{width:100%;border:0;background:transparent;font-family:var(--mono);font-size:15px;font-weight:500;padding:0;font-variant-numeric:tabular-nums}
+.param .hint{font-size:10.5px;color:var(--ink-3);margin-top:2px}
+
+.fields{display:grid;grid-template-columns:repeat(12,1fr);gap:12px}
+.f{display:flex;flex-direction:column;gap:4px;min-width:0}
+.f label{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);font-weight:600}
+.f input,.f textarea,.f select{width:100%;border:1px solid var(--line);background:var(--surface-2);border-radius:4px;padding:6px 9px;font-family:inherit}
+.f input:focus,.f textarea:focus{background:var(--surface);border-color:var(--line-strong)}
+.f.num input{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.c2{grid-column:span 2}.c3{grid-column:span 3}.c4{grid-column:span 4}.c5{grid-column:span 5}.c6{grid-column:span 6}.c7{grid-column:span 7}.c8{grid-column:span 8}.c12{grid-column:span 12}
+@media (max-width:860px){ .c2,.c3,.c4,.c5,.c7,.c8{grid-column:span 6} }
+@media (max-width:540px){ .c2,.c3,.c4,.c5,.c6,.c7,.c8{grid-column:span 12} }
+
+.tablewrap{overflow-x:auto}
+table.items{width:100%;border-collapse:collapse;min-width:800px}
+table.items th{font-family:var(--display);font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3);font-weight:600;text-align:left;padding:0 6px 7px;border-bottom:1px solid var(--line-strong)}
+table.items th.r,table.items td.r{text-align:right}
+table.items td{padding:3px 3px;border-bottom:1px solid var(--line);vertical-align:middle}
+table.items input{width:100%;border:1px solid transparent;background:transparent;border-radius:4px;padding:5px 6px}
+table.items input:hover{border-color:var(--line)}
+table.items input:focus{background:var(--surface-2);border-color:var(--line-strong)}
+table.items input.n{font-family:var(--mono);text-align:right;font-variant-numeric:tabular-nums}
+table.items input:disabled{color:var(--ink-3);cursor:default}
+.cellcost{font-family:var(--mono);font-variant-numeric:tabular-nums;text-align:right;color:var(--ink-3);font-size:12.5px;padding-right:6px;white-space:nowrap}
+.rowtot{font-family:var(--mono);font-variant-numeric:tabular-nums;padding-right:6px;white-space:nowrap;font-weight:500}
+.rowmeta{font-size:10.5px;color:var(--ink-3);font-family:var(--mono);padding:0 6px 4px;letter-spacing:.01em;line-height:1.3}
+.del{border:0;background:transparent;color:var(--ink-3);cursor:pointer;padding:4px 6px;border-radius:4px;line-height:1}
+.del:hover{background:var(--accent-soft);color:var(--accent)}
+.empty{padding:26px 12px;text-align:center;color:var(--ink-3);font-size:13px;line-height:1.6}
+
+.foot{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:20px;margin-top:18px}
+@media (max-width:760px){ .foot{grid-template-columns:minmax(0,1fr)} }
+.totals{border-top:2px solid var(--ink);padding-top:9px}
+.totrow{display:flex;justify-content:space-between;align-items:baseline;padding:3px 0;font-family:var(--mono);font-variant-numeric:tabular-nums}
+.totrow span:first-child{font-family:var(--body);color:var(--ink-2);font-size:12.5px}
+.totrow.grand{border-top:1px solid var(--line);margin-top:5px;padding-top:8px;font-size:20px;font-weight:500}
+.totrow.grand span:first-child{font-family:var(--display);font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink);font-weight:600}
+.margenbox{margin-top:12px;background:var(--ok-soft);border:1px solid var(--line);border-radius:var(--r);padding:9px 12px}
+.margenbox .totrow span:first-child{color:var(--ink-2)}
+.margenbox .totrow{padding:2px 0;font-size:12.5px}
+
+.side{position:sticky;top:64px}
+@media (max-width:1120px){ .side{position:static} }
+.tabs{display:flex;gap:0;padding:6px 6px 0;overflow-x:auto}
+.tab{flex:1 0 auto;border:0;background:transparent;padding:8px 10px;cursor:pointer;font-family:var(--display);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;font-weight:600;color:var(--ink-3);border-bottom:2px solid transparent;white-space:nowrap}
+.tab[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--accent)}
+.search{padding:10px 12px 8px;display:flex;flex-direction:column;gap:8px;border-bottom:1px solid var(--line)}
+.search input[type=search]{width:100%;border:1px solid var(--line-strong);background:var(--surface-2);border-radius:4px;padding:7px 10px}
+.filters{display:flex;gap:6px;flex-wrap:wrap}
+.chip{border:1px solid var(--line);background:var(--surface-2);border-radius:20px;padding:3px 11px;font-size:11.5px;cursor:pointer;font-weight:500;color:var(--ink-2)}
+.chip[aria-pressed="true"]{background:var(--ink);border-color:var(--ink);color:var(--surface)}
+.selrow{display:flex;gap:6px}
+.search select{width:100%;border:1px solid var(--line);background:var(--surface-2);border-radius:4px;padding:5px 8px;font-size:12.5px}
+.count{font-size:10.5px;color:var(--ink-3);letter-spacing:.06em;text-transform:uppercase;font-weight:600;font-family:var(--display)}
+.list{max-height:min(60vh,660px);overflow-y:auto}
+@media (max-width:1120px){ .list{max-height:480px} }
+.item{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;padding:9px 12px;border-bottom:1px solid var(--line);align-items:center}
+.item:hover{background:var(--surface-2)}
+.item-d{font-size:12.5px;line-height:1.35}
+.item-m{font-size:10.5px;color:var(--ink-3);font-family:var(--mono);margin-top:3px}
+.tag{display:inline-block;font-family:var(--display);font-size:9px;font-weight:700;letter-spacing:.09em;padding:1px 5px;border-radius:3px;background:var(--surface-3);border:1px solid var(--line);color:var(--ink-2);vertical-align:1px}
+.item-p{text-align:right;white-space:nowrap;display:flex;align-items:center;gap:8px}
+.pv{font-family:var(--mono);font-size:13px;font-weight:500;font-variant-numeric:tabular-nums}
+.pc{font-size:10px;color:var(--ink-3);font-family:var(--mono);margin-top:1px}
+.mg{width:48px;border:1px solid var(--line);background:var(--surface-2);border-radius:4px;padding:2px 4px;font-family:var(--mono);font-size:11px;text-align:right;margin-top:3px}
+.mg.over{border-color:var(--accent);color:var(--accent);font-weight:500}
+.add{border:1px solid var(--line-strong);background:var(--surface);border-radius:4px;width:26px;height:26px;cursor:pointer;font-size:16px;line-height:1;color:var(--ink-2);flex:none}
+.add:hover{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+
+.lrow{padding:11px 12px;border-bottom:1px solid var(--line);display:flex;gap:10px;align-items:flex-start}
+.lrow .grow{min-width:0;flex:1}
+.lname{font-size:13px;font-weight:500}
+.lmeta{font-size:11px;color:var(--ink-3);font-family:var(--mono);margin-top:2px}
+.sw{position:relative;display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:var(--ink-2);cursor:pointer}
+.mrow{display:flex;align-items:center;gap:10px;padding:7px 12px;border-bottom:1px solid var(--line)}
+.mrow .grow{flex:1;min-width:0;font-size:12.5px}
+.mrow small{color:var(--ink-3);font-family:var(--mono);font-size:11px}
+.mrow input{width:62px;border:1px solid var(--line);background:var(--surface-2);border-radius:4px;padding:4px 6px;font-family:var(--mono);text-align:right;font-size:12.5px}
+.hist-item{padding:10px 12px;border-bottom:1px solid var(--line);display:flex;gap:10px;align-items:center;cursor:pointer}
+.hist-item:hover{background:var(--surface-2)}
+.hist-n{font-family:var(--mono);font-weight:500;color:var(--accent)}
+.hist-t{font-family:var(--mono);font-size:12px;margin-left:auto;font-variant-numeric:tabular-nums}
+
+.imp{padding:12px;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:10px}
+.imp textarea{width:100%;min-height:104px;border:1px solid var(--line);background:var(--surface-2);border-radius:4px;padding:8px;font-family:var(--mono);font-size:11.5px;resize:vertical}
+.imp .g2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.imp label{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);font-weight:600;display:block;margin-bottom:3px}
+.imp input[type=text],.imp select{width:100%;border:1px solid var(--line);background:var(--surface-2);border-radius:4px;padding:6px 8px;font-size:12.5px}
+.prev{border:1px solid var(--line);border-radius:4px;overflow:auto;max-height:150px}
+.prev table{width:100%;border-collapse:collapse;font-size:11px;font-family:var(--mono)}
+.prev th{background:var(--surface-3);text-align:left;padding:4px 6px;font-weight:600;position:sticky;top:0}
+.prev td{padding:3px 6px;border-top:1px solid var(--line);white-space:nowrap;max-width:190px;overflow:hidden;text-overflow:ellipsis}
+.note{font-size:11.5px;color:var(--ink-3);line-height:1.55}
+.warnbox{background:var(--warn-soft);border:1px solid var(--line);border-radius:4px;padding:8px 10px;font-size:11.5px;color:var(--ink-2)}
+.toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:var(--ink);color:var(--ground);padding:9px 16px;border-radius:20px;font-size:13px;box-shadow:var(--shadow);z-index:60;max-width:min(92vw,470px);text-align:center}
+@media (prefers-reduced-motion:no-preference){ .toast{animation:rise .18s ease-out} @keyframes rise{from{opacity:0;transform:translate(-50%,6px)}} }
+
+body{margin:0}
+[hidden]{display:none!important}
+.back{font-size:12.5px;color:var(--ink-2);text-decoration:none;padding:6px 10px;border-radius:var(--r)}
+.back:hover{background:var(--surface-3);color:var(--ink)}
+.modes{display:inline-flex;gap:2px;padding:3px;margin-block:16px 14px;background:var(--surface-3);border:1px solid var(--line);border-radius:8px}
+.mode{border:0;background:transparent;padding:7px 16px;border-radius:6px;cursor:pointer;font-family:var(--display);font-size:12px;font-weight:600;letter-spacing:.04em;color:var(--ink-2)}
+.mode[aria-selected="true"]{background:var(--surface);color:var(--ink);box-shadow:var(--shadow)}
+#secLista table.items{min-width:840px}
+#secLista table.items th:first-child{min-width:170px}
+td.ord{white-space:nowrap}
+.del:disabled{opacity:.3;cursor:default}
+.panel-head .count{margin-left:4px}
+</style>
+
+
+</head>
+<body>
+<div class="topbar">
+  <div class="topbar-in">
+    <div>
+      <img class="logo" id="logoImg" alt="INDSEG" src="">
+      <div class="logo-sub">Cotizador · listas de proveedores</div>
+    </div>
+    <a class="back" href="/dashboard">← Volver al panel</a>
+    <div class="spacer"></div>
+    <div class="status"><span class="dot" id="dot"></span><span id="statusTxt">Cargando…</span></div>
+    <button class="btn btn-sm" id="btnNueva">Nueva</button>
+    <button class="btn btn-sm" id="btnGuardar">Guardar</button>
+    <button class="btn btn-sm btn-primary" id="btnPdf">Descargar PDF</button>
+  </div>
+</div>
+
+<div class="wrap">
+  <main>
+    <div class="params">
+      <div class="param">
+        <label for="pTc">Dólar (divisa vend.)</label>
+        <input id="pTc" type="number" step="0.01" min="0" value="1420">
+        <div class="hint">pesos por USD</div>
+      </div>
+      <div class="param">
+        <label for="pMargen">Margen general</label>
+        <input id="pMargen" type="number" step="1" min="0" max="95" value="45">
+        <div class="hint">% sobre la venta</div>
+      </div>
+      <div class="param">
+        <label for="pIva">IVA</label>
+        <input id="pIva" type="number" step="0.5" min="0" value="21">
+        <div class="hint">% sobre el neto</div>
+      </div>
+      <div class="param">
+        <label for="pRedondeo">Redondeo</label>
+        <select id="pRedondeo">
+          <option value="0">Sin redondear</option>
+          <option value="10" selected>A $10</option>
+          <option value="50">A $50</option>
+          <option value="100">A $100</option>
+        </select>
+        <div class="hint">del precio de venta</div>
+      </div>
+      <div class="param">
+        <label>Artículos activos</label>
+        <input id="pCount" value="—" readonly tabindex="-1">
+        <div class="hint" id="pCountHint">2 listas activas</div>
+      </div>
+    </div>
+
+    <div class="modes" role="tablist" aria-label="Documento">
+      <button class="mode" id="modeCot" role="tab" aria-selected="true" aria-controls="secCot">Cotización</button>
+      <button class="mode" id="modeLista" role="tab" aria-selected="false" aria-controls="secLista">Lista de precios</button>
+    </div>
+
+    <div id="secCot" role="tabpanel" aria-labelledby="modeCot">
+    <section class="panel">
+      <div class="panel-head"><span class="panel-title">Datos de la cotización</span></div>
+      <div class="panel-body">
+        <div class="fields">
+          <div class="f c2 num"><label for="fNum">Número</label><input id="fNum"></div>
+          <div class="f c5"><label for="fEmpresa">Empresa</label><input id="fEmpresa" placeholder="Razón social del cliente" autocomplete="off"></div>
+          <div class="f c3"><label for="fFecha">Fecha</label><input id="fFecha" type="date"></div>
+          <div class="f c2"><label for="fEntrega">Entrega</label><input id="fEntrega" type="date"></div>
+          <div class="f c7"><label for="fDireccion">Dirección</label><input id="fDireccion" placeholder="Domicilio de entrega" autocomplete="off"></div>
+          <div class="f c5"><label for="fCotizo">Cotizó</label><input id="fCotizo" placeholder="Nombre del vendedor" autocomplete="off"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <span class="panel-title">Renglones</span>
+        <div class="spacer"></div>
+        <button class="btn btn-sm btn-ghost" id="btnRenglon">+ Renglón en blanco</button>
+      </div>
+      <div class="panel-body">
+        <div class="tablewrap">
+          <table class="items">
+            <thead>
+              <tr>
+                <th style="width:66px" class="r">Cant</th>
+                <th>Descripción</th>
+                <th style="width:96px" class="r">Costo</th>
+                <th style="width:70px" class="r">Margen %</th>
+                <th style="width:110px" class="r">Precio</th>
+                <th style="width:66px" class="r">Desc %</th>
+                <th style="width:120px" class="r">Precio total</th>
+                <th style="width:30px"></th>
+              </tr>
+            </thead>
+            <tbody id="tbody"></tbody>
+          </table>
+        </div>
+        <div class="empty" id="emptyMsg" hidden>Todavía no hay renglones.<br>Buscá un artículo en el catálogo y tocá <strong>+</strong>, o agregá un renglón en blanco.</div>
+
+        <div class="foot">
+          <div class="fields" style="align-content:start">
+            <div class="f c12"><label for="fTalles">Talles (pie del PDF)</label><textarea id="fTalles" rows="2">Talles a partir del XXL - Recargo 10% -
+Camisas a partir del talle 48 - Recargo 15% -</textarea></div>
+            <div class="f c12"><label for="fObs">Observaciones</label><textarea id="fObs" rows="2" placeholder="Validez de la oferta, forma de pago, plazos…"></textarea></div>
+          </div>
+          <div>
+            <div class="totals">
+              <div class="totrow"><span>Neto</span><span id="tNeto">700,250.00</span></div>
+              <div class="totrow"><span>IVA <span id="tIvaPct">21</span>%</span><span id="tIva">147,052.50</span></div>
+              <div class="totrow grand"><span>Total</span><span id="tTotal">847,302.50</span></div>
+            </div>
+            <div class="margenbox">
+              <div class="totrow"><span>Costo total</span><span id="tCosto">—</span></div>
+              <div class="totrow"><span>Ganancia bruta</span><span id="tGan">—</span></div>
+              <div class="totrow"><span>Margen efectivo</span><span id="tMg">—</span></div>
+              <p class="note" id="tMgNota" style="margin:4px 0 0"></p>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px">
+              <button class="btn btn-primary" id="btnPdf2">Descargar PDF</button>
+              <button class="btn" id="btnGuardar2">Guardar</button>
+            </div>
+            <p class="note" id="pdfNote" style="margin-top:10px">Todo lo que guardás queda en el panel: lo ves desde cualquier computadora.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+    </div>
+
+    <div id="secLista" role="tabpanel" aria-labelledby="modeLista" hidden>
+    <section class="panel">
+      <div class="panel-head"><span class="panel-title">Datos de la lista</span></div>
+      <div class="panel-body">
+        <div class="fields">
+          <div class="f c4"><label for="lPara">Para (cliente)</label><input id="lPara" placeholder="Opcional: razón social" autocomplete="off"></div>
+          <div class="f c3"><label for="lPeriodo">Período</label><input id="lPeriodo" placeholder="Septiembre 2026" autocomplete="off"></div>
+          <div class="f c3"><label for="lTitulo">Título</label><input id="lTitulo" placeholder="Lista de precios" autocomplete="off"></div>
+          <div class="f c2"><label for="lIva">Precios</label><select id="lIva"><option value="0">+ IVA</option><option value="1">Con IVA</option></select></div>
+          <div class="f c12"><label for="lNotas">Notas al pie</label><textarea id="lNotas" rows="2"></textarea></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <span class="panel-title">Productos</span>
+        <span class="count" id="lCount"></span>
+        <div class="spacer"></div>
+        <button class="btn btn-sm btn-ghost" id="btnPropios">+ Productos INDSEG</button>
+        <button class="btn btn-sm btn-ghost" id="btnTraerCot">Traer de la cotización</button>
+        <button class="btn btn-sm btn-ghost" id="btnLRenglon">+ En blanco</button>
+      </div>
+      <div class="panel-body">
+        <div class="tablewrap">
+          <table class="items">
+            <thead>
+              <tr>
+                <th>Producto</th>
+                <th style="width:130px">Descripción</th>
+                <th style="width:70px">Talles</th>
+                <th style="width:130px">Color</th>
+                <th style="width:64px" class="r">Margen %</th>
+                <th style="width:90px" class="r">Precio</th>
+                <th style="width:100px" class="r" id="lPrecioHead">Precio + IVA</th>
+                <th style="width:64px"></th>
+              </tr>
+            </thead>
+            <tbody id="ltbody"></tbody>
+          </table>
+        </div>
+        <div class="empty" id="lEmpty">La lista está vacía.<br>Buscá en el catálogo y tocá <strong>+</strong>, sumá tus <strong>productos INDSEG</strong> o traé los renglones de la cotización.</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:16px">
+          <button class="btn btn-primary" id="btnLPdf">Descargar lista en PDF</button>
+          <button class="btn" id="btnLGuardar">Guardar</button>
+          <div class="spacer" style="flex:1"></div>
+          <button class="btn btn-sm btn-danger" id="btnLVaciar">Vaciar lista</button>
+        </div>
+        <p class="note" style="margin-top:10px">El precio sale del costo y el margen, igual que en la cotización. Si elegís <strong>Con IVA</strong>, el PDF muestra el precio con IVA incluido. Las columnas de talles, color y descripción que queden vacías no aparecen en el PDF.</p>
+      </div>
+    </section>
+    </div>
+  </main>
+
+  <aside class="side">
+    <div class="panel">
+      <div class="tabs" role="tablist">
+        <button class="tab" id="tabCat" role="tab" aria-selected="true" aria-controls="paneCat">Catálogo</button>
+        <button class="tab" id="tabList" role="tab" aria-selected="false" aria-controls="paneList">Listas</button>
+        <button class="tab" id="tabMarg" role="tab" aria-selected="false" aria-controls="paneMarg">Márgenes</button>
+        <button class="tab" id="tabHist" role="tab" aria-selected="false" aria-controls="paneHist">Historial</button>
+      </div>
+
+      <div id="paneCat" role="tabpanel" aria-labelledby="tabCat">
+        <div class="search">
+          <input type="search" id="q" placeholder="Buscar: guante nitrilo, arnés, anteojo…" autocomplete="off">
+          <div class="filters" id="provFilters"></div>
+          <div class="selrow">
+            <select id="rubro"><option value="">Todos los rubros</option></select>
+            <select id="orden">
+              <option value="rel">Orden del rubro</option>
+              <option value="pv">Precio ↑</option>
+              <option value="pvd">Precio ↓</option>
+              <option value="prov">Proveedor</option>
+              <option value="az">A–Z</option>
+            </select>
+          </div>
+          <div class="count" id="resCount">416 artículos · 2 proveedores · se muestran 150</div>
+        </div>
+        <div class="list" id="list"></div>
+      </div>
+
+      <div id="paneList" role="tabpanel" aria-labelledby="tabList" hidden>
+        <div class="search">
+          <div style="display:flex;gap:8px;align-items:center">
+            <span class="count" id="listCount">2 listas · 2 activas</span>
+            <div class="spacer" style="flex:1"></div>
+            <button class="btn btn-sm btn-primary" id="btnNuevaLista">+ Importar lista</button>
+          </div>
+        </div>
+        <div id="impForm" hidden class="imp">
+          <div class="g2">
+            <div><label for="iNombre">Nombre de la lista</label><input type="text" id="iNombre" placeholder="Ej: Libus octubre"></div>
+            <div><label for="iProv">Proveedor</label><input type="text" id="iProv" placeholder="Ej: LIBUS"></div>
+          </div>
+          <div class="g2">
+            <div><label for="iMon">Moneda de los precios</label>
+              <select id="iMon"><option value="ARS">Pesos ($)</option><option value="USD">Dólares (U$S)</option></select></div>
+            <div><label for="iRubro">Rubro por defecto</label><select id="iRubro"></select></div>
+          </div>
+          <div>
+            <label for="iModo">Cómo viene la lista</label>
+            <select id="iModo">
+              <option value="auto">Detectar solo (recomendado)</option>
+              <option value="tabla">Tabla con columnas (Excel, CSV)</option>
+              <option value="lineas">Texto suelto, un artículo por línea</option>
+            </select>
+          </div>
+          <div>
+            <label for="iPaste">Pegá acá lo que tengas, o elegí un CSV o JSON</label>
+            <textarea id="iPaste" placeholder="De Excel:
+GUANTE NITRILO T9	1234	1850,50	12
+
+O de un PDF, un mail o WhatsApp:
+GUANTE NITRILO T9 ........ $ 1.850,50
+ANTIPARRA POLICARBONATO ... $ 6.900"></textarea>
+            <input type="file" id="iFile" accept=".csv,.tsv,.txt,.json" style="margin-top:6px;font-size:12px">
+          </div>
+          <div id="mapBox" hidden>
+            <div class="g2">
+              <div><label for="mDesc">Columna descripción</label><select id="mDesc"></select></div>
+              <div><label for="mPrecio">Columna precio / costo</label><select id="mPrecio"></select></div>
+            </div>
+            <div class="g2" style="margin-top:8px">
+              <div><label for="mCod">Columna código</label><select id="mCod"></select></div>
+              <div><label for="mBulto">Columna bulto</label><select id="mBulto"></select></div>
+            </div>
+            <div style="margin-top:8px"><label>Vista previa</label><div class="prev" id="prevBox"></div></div>
+            <p class="note" id="modoInfo" style="margin-top:6px"></p>
+            <p class="note" id="impInfo"></p>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-primary" id="btnImportar" disabled>Importar</button>
+            <button class="btn btn-ghost" id="btnCancelarImp">Cancelar</button>
+          </div>
+        </div>
+        <div class="list" id="listasList"></div>
+      </div>
+
+      <div id="paneMarg" role="tabpanel" aria-labelledby="tabMarg" hidden>
+        <div class="search">
+          <p class="note">El margen es <strong>sobre el precio de venta</strong>: <span style="font-family:var(--mono)">precio = costo ÷ (1 − margen)</span>. Un costo de 100 con 25 % de margen da <strong>133,33</strong>.</p>
+          <p class="note" style="margin-top:6px">Se usa el <strong>primer margen que encuentre</strong>: el del artículo, si no el del rubro, si no el general. Los de artículo se editan en el catálogo, sobre cada fila.</p>
+          <div style="display:flex;gap:8px;align-items:center">
+            <span class="count" id="margCount">0 artículos con margen propio</span>
+            <div class="spacer" style="flex:1"></div>
+            <button class="btn btn-sm btn-ghost" id="btnLimpiarMarg">Borrar los de artículo</button>
+          </div>
+        </div>
+        <div class="list" id="margList"></div>
+      </div>
+
+      <div id="paneHist" role="tabpanel" aria-labelledby="tabHist" hidden>
+        <div class="list" id="histList"><div class="empty">Las cotizaciones que guardes aparecen acá.</div></div>
+      </div>
+    </div>
+  </aside>
+</div>
+
+
+<script src="logo.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

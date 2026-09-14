@@ -29,7 +29,10 @@ export default function Login() {
     setLoading(true)
     try {
       await login(username, password)
-      navigate('/dashboard')
+      // Pages outside the SPA (e.g. /cotizador/) send the user here with ?next=
+      const next = new URLSearchParams(window.location.search).get('next') ?? ''
+      if (next.startsWith('/cotizador/')) window.location.assign(next)
+      else navigate('/dashboard')
     } catch {
       setError('Usuario o contraseña incorrectos')
     } finally {

@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom'
-import { LayoutDashboard, MapPin, ShoppingBag, MessageCircle, Settings, X, LogOut, Sparkles, Linkedin, BarChart2 } from 'lucide-react'
+import { LayoutDashboard, MapPin, ShoppingBag, MessageCircle, Settings, X, LogOut, Sparkles, Linkedin, BarChart2, Calculator } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import LogoIndseg from './LogoIndseg'
 
@@ -57,6 +57,11 @@ export default function Sidebar({ open, onClose }: Props) {
               {({ isActive }) => (<><Icon size={17} className={isActive ? 'text-brand-accent' : 'text-slate-400'} />{label}</>)}
             </NavLink>
           ))}
+          {/* Static app outside the SPA router, so a plain link instead of NavLink */}
+          <a href="/cotizador/"
+            className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-150 text-slate-500 hover:bg-slate-50 hover:text-slate-800">
+            <Calculator size={17} className="text-slate-400" />Cotizador
+          </a>
 
           <p className="px-3 pt-4 pb-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Herramientas IA</p>
           {navIA.map(({ to, icon: Icon, label }) => (

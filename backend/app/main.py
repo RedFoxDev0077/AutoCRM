@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from app.database import init_db, AsyncSessionLocal
 from app.config import get_settings
 from app.routers import dashboard, kommo, whatsapp, leads, mercadolibre, push, auth as auth_router
-from app.routers import social, linkedin, google_ads, social_publish
+from app.routers import social, linkedin, google_ads, social_publish, cotizador
 
 
 async def _poll_ml_and_push():
@@ -97,6 +97,7 @@ app.include_router(social.router, prefix="/api")
 app.include_router(social_publish.router, prefix="/api")
 app.include_router(linkedin.router, prefix="/api")
 app.include_router(google_ads.router, prefix="/api")
+app.include_router(cotizador.router, prefix="/api")
 
 _UPLOAD_DIR = "/app/data/uploads"
 os.makedirs(_UPLOAD_DIR, exist_ok=True)
