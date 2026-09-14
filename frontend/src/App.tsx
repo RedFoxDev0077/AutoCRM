@@ -10,6 +10,7 @@ import WhatsApp from './pages/WhatsApp'
 import Settings from './pages/Settings'
 import Landing from './pages/Landing'
 import Login from './pages/Login'
+import { externalNextPage, openExternalPage } from './utils/nextPage'
 import Contenido from './pages/Contenido'
 import LinkedIn from './pages/LinkedIn'
 import GoogleAds from './pages/GoogleAds'
@@ -112,6 +113,9 @@ function ProtectedApp() {
             <Route path="/contenido"   element={<Contenido />} />
             <Route path="/linkedin"    element={<LinkedIn />} />
             <Route path="/google-ads"  element={<GoogleAds />} />
+            {/* The SPA shell should never serve /cotizador/ (nginx serves the static app),
+                but a stale cached shell can; reload from the server instead of bouncing to /dashboard. */}
+            <Route path="/cotizador/*" element={<ExternalRedirect to="/cotizador/" />} />
             <Route path="*"            element={<Navigate to="/dashboard" replace />} />
           </Routes>
         </main>
@@ -135,6 +139,15 @@ export default function App() {
 
 function LoginGuard() {
   const { token } = useAuth()
-  if (token) return <Navigate to="/dashboard" replace />
+  if (token) {
+    const next = externalNextPage()
+    if (next) return <ExternalRedirect to={next} />
+    return <Navigate to="/dashboard" replace />
+  }
   return <Login />
+}
+
+function ExternalRedirect({ to }: { to: string }) {
+  useEffect(() => { openExternalPage(to) }, [to])
+  return null
 }

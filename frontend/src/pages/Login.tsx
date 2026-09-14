@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { CheckCircle, Eye, EyeOff, ArrowRight, Bot, ShoppingBag, Users } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import LogoIndseg from '../components/LogoIndseg'
+import { externalNextPage, openExternalPage } from '../utils/nextPage'
 
 const benefits = [
   { icon: Bot,         text: 'Bot WhatsApp activo 24/7' },
@@ -28,10 +29,11 @@ export default function Login() {
     setError('')
     setLoading(true)
     try {
+      // Read ?next= before logging in: once the token is set, LoginGuard
+      // re-renders and redirects, which drops the query string.
+      const next = externalNextPage()
       await login(username, password)
-      // Pages outside the SPA (e.g. /cotizador/) send the user here with ?next=
-      const next = new URLSearchParams(window.location.search).get('next') ?? ''
-      if (next.startsWith('/cotizador/')) window.location.assign(next)
+      if (next) openExternalPage(next)
       else navigate('/dashboard')
     } catch {
       setError('Usuario o contraseña incorrectos')
