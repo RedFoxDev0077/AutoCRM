@@ -4,11 +4,13 @@ The page is a static app; everything it keeps (settings, margins, imported
 supplier price lists, saved quotes, the customer price list) is stored here as
 JSON documents. Auth comes from the global JWT middleware in app.main.
 """
+import os
 import re
 from datetime import datetime
 from fastapi import APIRouter, Body, Depends, HTTPException, UploadFile
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
+from app.config import get_settings
 from app.database import get_db
 from app.models.cotizador_doc import CotizadorDoc
 
@@ -223,3 +225,123 @@ async def pdf_texto(file: UploadFile):
     if out["modo"] == "vacio":
         raise HTTPException(status_code=422, detail="El PDF no tiene texto: parece una imagen escaneada. Pedile al proveedor la lista en Excel o en un PDF con texto.")
     return out
+
+
+# ── reading any supplier PDF with Claude ────────────────────────────
+IA_MODEL = os.environ.get("COTIZADOR_IA_MODEL", "claude-opus-5")
+IA_CHUNK_CHARS = 9000
+RUBROS = [
+    "Protección respiratoria", "Protección visual y facial", "Protección auditiva",
+    "Protección de cabeza", "Guantes y manguitos", "Calzado de seguridad",
+    "Protección contra caídas", "Indumentaria de trabajo", "Emergencias y primeros auxilios",
+    "Señalización y demarcación", "Sujeción de cargas", "Otros",
+]
+IA_SYSTEM = (
+    "Sos un asistente que ordena listas de precios de proveedores de seguridad industrial e "
+    "indumentaria de trabajo. Recibís el texto de una lista (sale de un PDF, puede venir "
+    "desordenado) y devolvés únicamente los artículos con precio.\n\n"
+    "Respondé SOLO un array JSON, sin explicaciones ni ```. Cada artículo es un objeto:\n"
+    '{"d": descripción, "c": código, "b": bulto, "m": "USD" o "ARS", "v": costo, "r": rubro}\n\n'
+    "Reglas:\n"
+    "- d: la descripción completa del artículo. Si viene cortada en varias líneas, unila en una sola.\n"
+    "- c: el código del proveedor, o \"\" si no hay. Si hay un código por talle, ponelos todos "
+    "separados por espacio (ej: \"TALLE 7 -2903 TALLE 8 -2904\").\n"
+    "- b: solo el número de unidades por bulto, o \"\".\n"
+    "- m: \"USD\" si el precio está en dólares (U$S, USS, US$, u$s), \"ARS\" si está en pesos.\n"
+    "- v: el costo unitario como número (punto decimal, sin separador de miles ni símbolos). "
+    "Si hay más de un precio, usá el primero.\n"
+    "- r: uno de estos rubros exactos: " + ", ".join(RUBROS) + ".\n"
+    "- No incluyas títulos de sección, encabezados de tabla, notas al pie, condiciones de venta "
+    "ni artículos sin precio.\n"
+    "- No inventes artículos ni precios: si algo no está en el texto, dejalo vacío."
+)
+
+
+def _ia_chunks(texto: str) -> list[str]:
+    chunks, actual = [], ""
+    for linea in texto.split("\n"):
+        if len(actual) + len(linea) + 1 > IA_CHUNK_CHARS and actual:
+            chunks.append(actual)
+            actual = ""
+        actual += linea + "\n"
+    if actual.strip():
+        chunks.append(actual)
+    return chunks
+
+
+def _ia_items(texto: str) -> list[dict]:
+    """Ask Claude for the rows of one chunk of the list."""
+    import json
+
+    import anthropic
+
+    settings = get_settings()
+    if not settings.ANTHROPIC_API_KEY:
+        raise HTTPException(status_code=503, detail="Falta la clave de Claude en el servidor.")
+    client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+    with client.messages.stream(
+        model=IA_MODEL,
+        max_tokens=16000,
+        system=IA_SYSTEM,
+        messages=[{"role": "user", "content": "Lista de precios:\n\n" + texto}],
+    ) as stream:
+        message = stream.get_final_message()
+    salida = "".join(b.text for b in message.content if b.type == "text").strip()
+    if salida.startswith("```"):
+        salida = salida.split("\n", 1)[-1].rsplit("```", 1)[0]
+    inicio, fin = salida.find("["), salida.rfind("]")
+    if inicio < 0 or fin < 0:
+        return []
+    try:
+        crudos = json.loads(salida[inicio:fin + 1])
+    except json.JSONDecodeError:
+        return []
+    items = []
+    for x in crudos if isinstance(crudos, list) else []:
+        if not isinstance(x, dict):
+            continue
+        try:
+            v = float(str(x.get("v", "")).replace(",", "."))
+        except ValueError:
+            continue
+        d = _clean_cell(x.get("d"))
+        if not d or v <= 0:
+            continue
+        items.append({
+            "d": d[:300], "c": _clean_cell(x.get("c"))[:200], "b": _clean_cell(x.get("b"))[:20],
+            "m": "USD" if str(x.get("m", "")).upper() == "USD" else "ARS",
+            "v": round(v, 3),
+            "r": x["r"] if x.get("r") in RUBROS else "Otros",
+        })
+    return items
+
+
+@router.post("/pdf-ia")
+async def pdf_ia(file: UploadFile):
+    """Fallback for lists the table reader can't handle: Claude reads the text and returns the rows."""
+    import asyncio
+
+    raw = await file.read()
+    if len(raw) > MAX_PDF_BYTES:
+        raise HTTPException(status_code=413, detail="El PDF pesa más de 20 MB.")
+    if not raw.lstrip().startswith(b"%PDF"):
+        raise HTTPException(status_code=400, detail="El archivo no es un PDF.")
+    try:
+        leido = await asyncio.to_thread(_pdf_to_text, raw)
+    except Exception:
+        raise HTTPException(status_code=422, detail="No se pudo abrir el PDF. Puede estar dañado o protegido con contraseña.")
+    if leido["modo"] == "vacio":
+        raise HTTPException(status_code=422, detail="El PDF no tiene texto: parece una imagen escaneada. Pedile al proveedor la lista en Excel o en un PDF con texto.")
+
+    items: list[dict] = []
+    vistos = set()
+    for chunk in _ia_chunks(leido["texto"]):
+        for it in await asyncio.to_thread(_ia_items, chunk):
+            clave = (it["d"].lower(), it["v"])
+            if clave in vistos:
+                continue
+            vistos.add(clave)
+            items.append(it)
+    if not items:
+        raise HTTPException(status_code=422, detail="La IA no encontró artículos con precio en este PDF.")
+    return {"items": items, "paginas": leido["paginas"], "filas": len(items)}

@@ -476,6 +476,8 @@ function renderListas(){
 
 /* --- parser de pegado / CSV --- */
 var impRows = [], impHead = [];
+var pdfArchivo = null;   // último PDF elegido, por si hay que leerlo con IA
+var iaItems = null;      // artículos que devolvió la IA (reemplazan al mapeo de columnas)
 /* elige separador, o devuelve "" si el texto no es una tabla */
 function detectarSep(lineas){
   var muestra = lineas.slice(0, 60);
@@ -692,6 +694,7 @@ function esTituloSeccion(f, iP){
   return llenas.length === 1 && !isFinite(precioDeCelda(f[iP])) && /[A-Za-zÁÉÍÓÚÑáéíóúñ]{4}/.test(llenas[0]);
 }
 function filasImportadas(){
+  if(iaItems) return { rows:iaItems.slice(), malas:0, secciones:0, ia:true };
   var iD = parseInt($("mDesc").value,10), iP = parseInt($("mPrecio").value,10),
       iC = parseInt($("mCod").value,10),  iB = parseInt($("mBulto").value,10),
       iE = parseInt($("mExtra").value,10);
@@ -731,6 +734,11 @@ function vistaPrevia(){
     }).join("")+
     '</tbody></table>';
   var conRubro = r.rows.filter(function(x){ return x.r; }).length;
+  if(r.ia){
+    $("impInfo").textContent = r.rows.length + " artículos leídos por la IA · revisá la vista previa antes de importar";
+    $("btnImportar").disabled = r.rows.length === 0;
+    return;
+  }
   $("impInfo").textContent = r.rows.length + " artículos listos" +
     (det ? " · precios en " + (det === "USD" ? "dólares" : "pesos") + " (detectado)" : "") +
     (r.rows.length ? " · " + conRubro + " con rubro reconocido" : "") +
@@ -771,6 +779,7 @@ function importarJson(file){
 
 /* PDF de proveedor: el servidor saca la tabla (o el texto) y se revisa en el mapeo antes de importar */
 function importarPdf(file){
+  iaItems = null;
   $("mapBox").hidden = true;
   $("impInfo").textContent = "";
   $("modoInfo").textContent = "";
@@ -797,10 +806,45 @@ function importarPdf(file){
         ? "Se leyó la tabla del PDF (" + j.filas + " filas"
         : "El PDF no tiene una tabla clara: se leyó el texto línea por línea (" + j.filas + " líneas") +
         ", " + j.paginas + (j.paginas === 1 ? " página)." : " páginas).") + " Revisá las columnas y la vista previa antes de importar.";
+      $("btnIa").hidden = false; $("iaNota").hidden = false;
       toast("PDF leído. Revisá la vista previa y tocá Importar.");
     })
     .catch(function(e){ toast("No se pudo leer el PDF: " + ((e && e.code) || "error")); })
     .then(function(){ $("iPaste").placeholder = ejemplo; });
+}
+
+/* Si la tabla del PDF sale mal (cada proveedor arma la suya distinta), la IA lee el texto
+   y devuelve los artículos ya ordenados. Igual se revisa en la vista previa antes de importar. */
+function leerConIa(){
+  if(!pdfArchivo){ toast("Elegí primero el PDF."); return; }
+  var btn = $("btnIa"), texto = btn.textContent;
+  btn.disabled = true; btn.textContent = "Leyendo con IA…";
+  $("impInfo").textContent = "La IA está leyendo el PDF. Puede tardar un minuto.";
+  var body = new FormData();
+  body.append("file", pdfArchivo);
+  fetch("/api/cotizador/pdf-ia", { method:"POST", headers:{ "Authorization":"Bearer " + token() }, body:body })
+    .then(function(r){
+      if(r.status === 401){ irAlLogin(); throw { code:"la sesión venció" }; }
+      return r.json().catch(function(){ return {}; }).then(function(j){
+        if(!r.ok) throw { code: j.detail || ("error " + r.status) };
+        return j;
+      });
+    }, function(){ throw { code:"sin conexión" }; })
+    .then(function(j){
+      iaItems = j.items;
+      $("mapBox").hidden = true;
+      $("modoInfo").textContent = "Lo leyó la IA: " + j.filas + (j.filas === 1 ? " artículo" : " artículos") +
+        " de " + j.paginas + (j.paginas === 1 ? " página." : " páginas.");
+      $("prevBox").innerHTML = "";
+      $("mapBox").hidden = false;
+      vistaPrevia();
+      toast("Listo. Revisá la vista previa y tocá Importar.");
+    })
+    .catch(function(e){
+      $("impInfo").textContent = "";
+      toast("La IA no pudo leer el PDF: " + ((e && e.code) || "error"));
+    })
+    .then(function(){ btn.disabled = false; btn.textContent = texto; });
 }
 
 /* ============ márgenes ============ */
@@ -1441,16 +1485,19 @@ function start(){
   });
   $("btnCancelarImp").addEventListener("click", function(){
     $("impForm").hidden = true; $("iPaste").value=""; $("mapBox").hidden = true; impRows=[]; impHead=[];
+    iaItems = null; pdfArchivo = null; $("btnIa").hidden = true; $("iaNota").hidden = true;
   });
   var tp=null;
-  $("iPaste").addEventListener("input", function(){ clearTimeout(tp); tp=setTimeout(function(){ analizarPegado($("iPaste").value); },250); });
+  $("iPaste").addEventListener("input", function(){ clearTimeout(tp); tp=setTimeout(function(){ iaItems = null; analizarPegado($("iPaste").value); },250); });
+  $("btnIa").addEventListener("click", leerConIa);
   $("iModo").addEventListener("change", function(){ analizarPegado($("iPaste").value); });
   $("iMon").addEventListener("change", function(){ if(impRows.length) vistaPrevia(); });
   $("iRubro").addEventListener("change", function(){ if(impRows.length) vistaPrevia(); });
   $("iFile").addEventListener("change", function(){
     var file=this.files && this.files[0]; if(!file) return;
     if(/\.json$/i.test(file.name)){ importarJson(file); this.value=""; return; }
-    if(/\.pdf$/i.test(file.name) || file.type === "application/pdf"){ importarPdf(file); this.value=""; return; }
+    if(/\.pdf$/i.test(file.name) || file.type === "application/pdf"){ pdfArchivo = file; importarPdf(file); this.value=""; return; }
+    pdfArchivo = null; iaItems = null; $("btnIa").hidden = true; $("iaNota").hidden = true;
     var fr=new FileReader();
     fr.onload=function(){ $("iPaste").value=String(fr.result).slice(0,900000); analizarPegado($("iPaste").value);
       if(!$("iNombre").value) $("iNombre").value = file.name.replace(/\.[^.]+$/,""); };
@@ -1473,6 +1520,7 @@ function start(){
     guardarListaNueva(L).catch(function(){});
     $("impForm").hidden=true; $("iPaste").value=""; $("iNombre").value=""; $("iProv").value="";
     $("mapBox").hidden=true; impRows=[]; impHead=[];
+    iaItems = null; pdfArchivo = null; $("btnIa").hidden = true; $("iaNota").hidden = true;
     toast("Importados "+L.items.length+" artículos como «"+nombre+"».");
   });
   $("btnLimpiarMarg").addEventListener("click", function(){
