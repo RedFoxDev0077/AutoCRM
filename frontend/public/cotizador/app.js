@@ -1482,7 +1482,11 @@ function start(){
 
   cargarEstado();
 }
-function arrancar(){ if(!token()) return irAlLogin(); start(); }
+function arrancar(){
+  if(!token()) return irAlLogin();
+  try{ start(); window.__cotizadorListo = true; }
+  catch(e){ if(window.__cotizadorBootFail) window.__cotizadorBootFail(e && e.message); else throw e; }
+}
 if(document.readyState === "loading") document.addEventListener("DOMContentLoaded", arrancar);
 else arrancar();
 })();

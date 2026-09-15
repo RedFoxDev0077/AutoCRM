@@ -1,4 +1,4 @@
-const CACHE = 'autocrm-v1'
+const CACHE = 'autocrm-v2'
 const SHELL = ['/', '/index.html']
 
 self.addEventListener('install', e => {
@@ -7,11 +7,18 @@ self.addEventListener('install', e => {
 })
 
 self.addEventListener('activate', e => {
-  e.waitUntil(clients.claim())
+  // drop caches from older versions of this worker
+  e.waitUntil(
+    caches.keys()
+      .then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
+      .then(() => clients.claim())
+  )
 })
 
 self.addEventListener('fetch', e => {
-  if (e.request.url.includes('/api/')) return
+  const url = new URL(e.request.url)
+  // API calls and the quoting tool (a separate static app) always go straight to the network
+  if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/cotizador')) return
   e.respondWith(
     fetch(e.request).catch(() => caches.match(e.request))
   )
