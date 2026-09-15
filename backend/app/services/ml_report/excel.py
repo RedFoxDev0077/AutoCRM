@@ -6,6 +6,7 @@ sheet stays live if Fede edits a number.
 from datetime import date, datetime
 
 from openpyxl import Workbook
+from openpyxl.chart import LineChart, Reference
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
@@ -72,7 +73,9 @@ def _fontify(ws):
 def build_workbook(path: str, *, fecha: str, metrics: dict, alertas: dict, highlights: list[str],
                    history: list[dict], positions: list[dict], campaigns: list[dict],
                    competidores: dict, promos: list[dict], actions: list[dict], errors: list[dict],
-                   ads_desde: str | None, ads_hasta: str | None):
+                   ads_desde: str | None, ads_hasta: str | None,
+                   serie: list[dict] | None = None, serie_campanas: list[dict] | None = None,
+                   serie_anuncios: list[dict] | None = None, promo_detalle: list[dict] | None = None):
     wb = Workbook()
 
     # ── Historico ─────────────────────────────────────────
@@ -246,6 +249,25 @@ def build_workbook(path: str, *, fecha: str, metrics: dict, alertas: dict, highl
         r += 1
     if r == 5:
         wpr.cell(row=5, column=1, value="Sin promociones activas ni propuestas.").font = F(size=10, color="7A716A")
+        r = 6
+
+    for pd in (promo_detalle or []):
+        if not pd["productos"]:
+            continue
+        r += 2
+        wpr.cell(row=r, column=1, value=f"{pd['nombre']} · {pd['estado']}").font = F(bold=True, size=11, color=RED)
+        r += 1
+        _head(wpr, r, ["Publicación", "Título", "Precio actual", "Precio con promo", "Descuento", "Resigna por unidad", "Stock"],
+              [15, 44, 15, 16, 12, 18, 9])
+        r += 1
+        for prod in pd["productos"]:
+            vals = [prod["mla"], prod["titulo"], prod["precio_actual"], prod["precio_promo"], prod["descuento"],
+                    prod["resigna"], prod["stock"]]
+            for j, v in enumerate(vals, start=1):
+                wpr.cell(row=r, column=j, value=v)
+            for j, fmt in ((3, MONEY), (4, MONEY), (5, PCT), (6, MONEY), (7, INT)):
+                wpr.cell(row=r, column=j).number_format = fmt
+            r += 1
 
     # ── Acciones ──────────────────────────────────────────
     wa = wb.create_sheet("Acciones")
@@ -261,6 +283,63 @@ def build_workbook(path: str, *, fecha: str, metrics: dict, alertas: dict, highl
         r += 1
     if not actions:
         wa.cell(row=5, column=1, value="Sin acciones urgentes en esta corrida.").font = F(size=10, color="7A716A")
+
+    # ── Evolución ─────────────────────────────────────────
+    we = wb.create_sheet("Evolucion", 3)
+    _title(we, "Evolución entre corridas", "Cómo vienen la publicidad, las campañas y las publicaciones que más invierten.")
+    _head(we, 4, ["Fecha", "Inversión", "Ingresos", "ROAS", "ACOS pct", "Ventas atrib", "Clics", "Anuncios"],
+          [12, 15, 16, 9, 10, 12, 10, 10])
+    r = 5
+    for p in (serie or []):
+        for j, v in enumerate([_d(p["fecha"]), p["inversion"], p["ingresos"], p["roas"], p["acos"], p["ventas"], p["clics"], p["anuncios"]], start=1):
+            we.cell(row=r, column=j, value=v)
+        for j, fmt in ((1, DATE), (2, MONEY), (3, MONEY), (4, DEC), (5, PCT), (6, INT), (7, INT), (8, INT)):
+            we.cell(row=r, column=j).number_format = fmt
+        r += 1
+    fin_serie = r - 1
+
+    if serie and len(serie) > 1:
+        ch = LineChart()
+        ch.title = "Inversión vs. ingresos por publicidad"
+        ch.height, ch.width = 7.5, 20
+        ch.add_data(Reference(we, min_col=2, max_col=3, min_row=4, max_row=fin_serie), titles_from_data=True)
+        ch.set_categories(Reference(we, min_col=1, min_row=5, max_row=fin_serie))
+        we.add_chart(ch, f"J4")
+        ch2 = LineChart()
+        ch2.title = "ROAS y ACOS"
+        ch2.height, ch2.width = 7.5, 20
+        ch2.add_data(Reference(we, min_col=4, max_col=5, min_row=4, max_row=fin_serie), titles_from_data=True)
+        ch2.set_categories(Reference(we, min_col=1, min_row=5, max_row=fin_serie))
+        we.add_chart(ch2, "J20")
+
+    r += 2
+    we.cell(row=r, column=1, value="Por campaña").font = F(bold=True, size=11, color=RED)
+    r += 1
+    _head(we, r, ["Campaña", "Fecha", "Inversión", "Ingresos", "ROAS", "Ventas"], [26, 12, 15, 16, 9, 10])
+    r += 1
+    for c in (serie_campanas or []):
+        for p in c["puntos"]:
+            for j, v in enumerate([c["campana"], _d(p["fecha"]), p["inversion"], p["ingresos"], p["roas"], p["ventas"]], start=1):
+                we.cell(row=r, column=j, value=v)
+            for j, fmt in ((2, DATE), (3, MONEY), (4, MONEY), (5, DEC), (6, INT)):
+                we.cell(row=r, column=j).number_format = fmt
+            r += 1
+
+    r += 2
+    we.cell(row=r, column=1, value="Por publicación (las que más invierten)").font = F(bold=True, size=11, color=RED)
+    r += 1
+    _head(we, r, ["MLA", "Título", "Fecha", "Inversión", "ACOS pct", "Visitas 7d", "Ventas 7d", "Conversión pct", "Precio", "Stock"],
+          [15, 40, 12, 15, 10, 11, 11, 13, 13, 9])
+    r += 1
+    for a in (serie_anuncios or []):
+        for p in a["puntos"]:
+            vals = [a["mla"], a["titulo"], _d(p["fecha"]), p["inversion"], p["acos"], p["visitas"], p["ventas"],
+                    p["conversion"], p["precio"], p["stock"]]
+            for j, v in enumerate(vals, start=1):
+                we.cell(row=r, column=j, value=v)
+            for j, fmt in ((3, DATE), (4, MONEY), (5, PCT), (6, INT), (7, INT), (8, PCT), (9, MONEY), (10, INT)):
+                we.cell(row=r, column=j).number_format = fmt
+            r += 1
 
     for sheet in wb.worksheets:
         _fontify(sheet)

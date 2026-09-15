@@ -87,6 +87,11 @@ async def run_report(trigger: str = "manual", collector: Collector | None = None
 
             actions = A.find_actions(rows, prev_rows, pos, prev_pos, campaigns, data["promociones"], fecha)
             highlights = A.highlights(metrics, prev_metrics, actions, col.errors)
+            serie = A.serie_cuenta(hist)
+            serie_camp = A.serie_campanas(hist)
+            serie_ads = A.serie_anuncios(hist)
+            serie_pos = A.serie_posiciones(all_pos)
+            promos = A.promo_detalle(data, rows)
 
             os.makedirs(REPORT_DIR, exist_ok=True)
             file_name = f"ML_informe_{fecha}.xlsx"
@@ -95,6 +100,7 @@ async def run_report(trigger: str = "manual", collector: Collector | None = None
                 alertas=data["catalogo"]["alertas"], highlights=highlights, history=hist, positions=all_pos,
                 campaigns=campaigns, competidores=A.competidores(data), promos=data["promociones"],
                 actions=actions, errors=col.errors, ads_desde=data["ads"]["desde"], ads_hasta=data["ads"]["hasta"],
+                serie=serie, serie_campanas=serie_camp, serie_anuncios=serie_ads, promo_detalle=promos,
             )
             nothing = not rows and not data["catalogo"]["items"]
             rep.status = "error" if nothing and col.errors else ("parcial" if col.errors else "ok")
@@ -105,6 +111,8 @@ async def run_report(trigger: str = "manual", collector: Collector | None = None
                 "posiciones": pos, "campanas": [{"nombre": c["nombre"], "estado": c["estado"], "roas": c["roas"],
                                                  "inversion": c["inversion"], "presupuesto": c["presupuesto"]} for c in campaigns],
                 "comparado_con": prev_ad_date,
+                "serie": serie, "serie_campanas": serie_camp, "serie_anuncios": serie_ads,
+                "serie_posiciones": serie_pos, "promo_detalle": promos,
             }
         except Exception as exc:  # the report page shows this instead of a silent failure
             rep.status = "error"

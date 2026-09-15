@@ -4,6 +4,9 @@ import {
   TrendingUp, Target, MousePointerClick, ShoppingCart, Megaphone, Percent, ChevronLeft, ChevronRight, History, X,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
+import {
+  CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
+} from 'recharts'
 import api from '../api/client'
 
 type Accion = { prioridad: 'Alta' | 'Media' | 'Baja'; tema: string; observado: string; accion: string }
@@ -15,7 +18,22 @@ type Summary = {
   errores?: { seccion: string; detalle: string }[]
   anuncios?: number
   comparado_con?: string | null
+  serie?: Punto[]
+  serie_campanas?: SerieCampana[]
+  serie_anuncios?: SerieAnuncio[]
+  serie_posiciones?: SeriePosicion[]
+  promo_detalle?: Promo[]
 }
+type Punto = { fecha: string; [k: string]: number | string | null }
+type SerieCampana = { campana: string; puntos: Punto[] }
+type SerieAnuncio = { mla: string; titulo: string; puntos: Punto[] }
+type SeriePosicion = { termino: string; mla: string; titulo: string; puntos: { fecha: string; posicion: number | null; estado: string }[] }
+type PromoProducto = {
+  mla: string; titulo: string; precio_actual: number | null; precio_promo: number | null
+  descuento: number | null; resigna: number | null; stock: number | null; ventas_7d: number | null
+}
+type Promo = { id: string; nombre: string; tipo: string; estado: string; desde: string; hasta: string; productos: PromoProducto[] }
+
 type Report = {
   id: number; run_date: string; trigger: string; status: 'running' | 'ok' | 'parcial' | 'error'
   created_at: string; finished_at: string | null; has_file: boolean; summary: Summary
@@ -73,6 +91,298 @@ function Tile({ icon: Icon, label, value, sub }: { icon: typeof TrendingUp; labe
       </div>
       <p className="text-xl font-bold text-slate-800 tabular-nums">{value}</p>
       {sub && <p className="text-xs text-slate-400 mt-0.5">{sub}</p>}
+    </div>
+  )
+}
+
+// slots 1-3 of the validated categorical palette (CVD-safe together)
+const SERIES = ['#2a78d6', '#eb6834', '#1baf7a']
+const EJE = '#94a3b8'
+const GRID = '#e2e8f0'
+
+const dm = (f: string) => f.slice(8, 10) + '/' + f.slice(5, 7)
+const compacto = (n: number) =>
+  Math.abs(n) >= 1_000_000 ? (n / 1_000_000).toFixed(1) + 'M'
+  : Math.abs(n) >= 1000 ? Math.round(n / 1000) + 'k'
+  : String(Math.round(n * 100) / 100)
+
+/** One measure over the runs. Separate charts per measure - never two scales in one plot. */
+function Mini({ titulo, data, clave, sufijo, moneda }: {
+  titulo: string; data: Punto[]; clave: string; sufijo?: string; moneda?: boolean
+}) {
+  const vals = data.map(d => Number(d[clave] ?? 0))
+  const ultimo = vals[vals.length - 1] ?? 0
+  const previo = vals.length > 1 ? vals[vals.length - 2] : null
+  const cambio = previo ? ((ultimo - previo) / previo) * 100 : null
+  return (
+    <div className="bg-white rounded-2xl border border-slate-100 p-4 shadow-sm">
+      <div className="flex items-baseline justify-between gap-2 mb-1">
+        <span className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">{titulo}</span>
+        {cambio != null && (
+          <span className={`text-[11px] font-semibold ${cambio >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+            {cambio >= 0 ? '+' : ''}{cambio.toFixed(0)} %
+          </span>
+        )}
+      </div>
+      <p className="text-lg font-bold text-slate-800 tabular-nums mb-1">
+        {moneda ? money(ultimo) : num(ultimo, sufijo ? 1 : 0)}{sufijo ?? ''}
+      </p>
+      <ResponsiveContainer width="100%" height={110}>
+        <LineChart data={data} margin={{ top: 4, right: 8, bottom: 0, left: -18 }}>
+          <CartesianGrid stroke={GRID} strokeDasharray="3 3" vertical={false} />
+          <XAxis dataKey="fecha" tickFormatter={dm} tick={{ fontSize: 10, fill: EJE }} stroke={GRID} tickLine={false} />
+          <YAxis tickFormatter={compacto} tick={{ fontSize: 10, fill: EJE }} stroke={GRID} tickLine={false} width={46} />
+          <Tooltip
+            labelFormatter={f => fechaCorta(String(f))}
+            formatter={(v: any) => [moneda ? money(Number(v)) : num(Number(v), sufijo ? 1 : 0) + (sufijo ?? ''), titulo]}
+            contentStyle={{ fontSize: 12, borderRadius: 12, border: '1px solid #e2e8f0' }}
+          />
+          <Line type="monotone" dataKey={clave} stroke={SERIES[0]} strokeWidth={2}
+            dot={{ r: 3.5, fill: SERIES[0], stroke: '#fff', strokeWidth: 2 }} activeDot={{ r: 5 }} />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  )
+}
+
+/** Positions for one search term. Lower is better; "no aparece" means measured, but not on page 1. */
+function TablaPosiciones({ series }: { series: SeriePosicion[] }) {
+  const fechas = Array.from(new Set(series.flatMap(s => s.puntos.map(p => p.fecha)))).sort().slice(-6)
+  const celda = (s: SeriePosicion, f: string) => {
+    const p = s.puntos.find(x => x.fecha === f)
+    if (!p || p.estado === 'no medido') return <span className="text-slate-300">—</span>
+    if (p.posicion == null) return <span className="text-amber-600">no ap.</span>
+    return <span className="text-slate-800 tabular-nums">{p.posicion}°</span>
+  }
+  const tendencia = (s: SeriePosicion) => {
+    const medidas = s.puntos.filter(p => p.posicion != null)
+    if (medidas.length < 2) return null
+    const d = medidas[medidas.length - 2].posicion! - medidas[medidas.length - 1].posicion!
+    if (d === 0) return <span className="text-slate-400">=</span>
+    return <span className={d > 0 ? 'text-emerald-600' : 'text-red-500'}>{d > 0 ? `subió ${d}` : `bajó ${-d}`}</span>
+  }
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="text-left text-[10px] uppercase tracking-widest text-slate-400">
+            <th className="py-2 pr-3 font-semibold">Publicación</th>
+            {fechas.map(f => <th key={f} className="py-2 px-2 font-semibold text-right">{dm(f)}</th>)}
+            <th className="py-2 pl-2 font-semibold text-right">Tendencia</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-100">
+          {series.map(s => (
+            <tr key={s.mla}>
+              <td className="py-2 pr-3 tabular-nums text-slate-600">{s.mla}</td>
+              {fechas.map(f => <td key={f} className="py-2 px-2 text-right">{celda(s, f)}</td>)}
+              <td className="py-2 pl-2 text-right text-xs font-semibold">{tendencia(s) ?? <span className="text-slate-300">—</span>}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+const delta = (puntos: Punto[], clave: string) => {
+  const v = puntos.map(p => Number(p[clave] ?? 0))
+  if (v.length < 2 || !v[v.length - 2]) return null
+  return ((v[v.length - 1] - v[v.length - 2]) / v[v.length - 2]) * 100
+}
+const ultimo = (puntos: Punto[], clave: string) => {
+  const p = puntos[puntos.length - 1]
+  return p ? (p[clave] as number | null) : null
+}
+
+function Cambio({ pct, invertido }: { pct: number | null; invertido?: boolean }) {
+  if (pct == null) return <span className="text-slate-300">—</span>
+  const bueno = invertido ? pct <= 0 : pct >= 0
+  return (
+    <span className={`text-xs font-semibold tabular-nums ${bueno ? 'text-emerald-600' : 'text-red-500'}`}>
+      {pct >= 0 ? '+' : ''}{pct.toFixed(0)} %
+    </span>
+  )
+}
+
+type Pestana = 'ads' | 'historico' | 'posiciones' | 'propuestas'
+
+function Detalle({ s }: { s: Summary }) {
+  const [tab, setTab] = useState<Pestana>('ads')
+  const serie = s.serie ?? []
+  const porTermino = (s.serie_posiciones ?? []).reduce<Record<string, SeriePosicion[]>>((acc, x) => {
+    (acc[x.termino] = acc[x.termino] ?? []).push(x)
+    return acc
+  }, {})
+  const tabs: [Pestana, string, number][] = [
+    ['ads', 'Publicidad', (s.serie_campanas ?? []).length],
+    ['historico', 'Publicaciones', (s.serie_anuncios ?? []).length],
+    ['posiciones', 'Posiciones', Object.keys(porTermino).length],
+    ['propuestas', 'Promociones', (s.promo_detalle ?? []).length],
+  ]
+
+  return (
+    <div className="card overflow-hidden">
+      <div className="px-5 pt-3 border-b border-slate-100 flex gap-1 overflow-x-auto">
+        {tabs.map(([id, label, n]) => (
+          <button key={id} onClick={() => setTab(id)}
+            className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px whitespace-nowrap transition-colors ${
+              tab === id ? 'border-brand-accent text-slate-800' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
+            {label} <span className="text-xs text-slate-400 tabular-nums">{n}</span>
+          </button>
+        ))}
+      </div>
+
+      <div className="p-5 space-y-5">
+        {tab === 'ads' && (serie.length < 2 ? (
+          <p className="text-sm text-slate-400">Con una sola corrida todavía no hay evolución. Después del próximo informe vas a ver cómo cambió.</p>
+        ) : (
+          <>
+            <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              <Mini titulo="Inversión" data={serie} clave="inversion" moneda />
+              <Mini titulo="Ingresos por ads" data={serie} clave="ingresos" moneda />
+              <Mini titulo="ROAS" data={serie} clave="roas" />
+              <Mini titulo="ACOS" data={serie} clave="acos" sufijo=" %" />
+            </div>
+            <div>
+              <h4 className="text-sm font-semibold text-slate-800 mb-2">Por campaña</h4>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-[10px] uppercase tracking-widest text-slate-400">
+                      <th className="py-2 pr-3 font-semibold">Campaña</th>
+                      <th className="py-2 px-3 font-semibold text-right">Inversión</th>
+                      <th className="py-2 px-3 font-semibold text-right">vs. anterior</th>
+                      <th className="py-2 px-3 font-semibold text-right">Ingresos</th>
+                      <th className="py-2 px-3 font-semibold text-right">ROAS</th>
+                      <th className="py-2 pl-3 font-semibold text-right">Ventas</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {(s.serie_campanas ?? []).map(c => (
+                      <tr key={c.campana}>
+                        <td className="py-2 pr-3 text-slate-700">{c.campana}</td>
+                        <td className="py-2 px-3 text-right tabular-nums">{money(ultimo(c.puntos, 'inversion'))}</td>
+                        <td className="py-2 px-3 text-right"><Cambio pct={delta(c.puntos, 'inversion')} /></td>
+                        <td className="py-2 px-3 text-right tabular-nums">{money(ultimo(c.puntos, 'ingresos'))}</td>
+                        <td className="py-2 px-3 text-right tabular-nums">{num(ultimo(c.puntos, 'roas'), 1)}</td>
+                        <td className="py-2 pl-3 text-right tabular-nums">{num(ultimo(c.puntos, 'ventas'))}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </>
+        ))}
+
+        {tab === 'historico' && (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-[10px] uppercase tracking-widest text-slate-400">
+                  <th className="py-2 pr-3 font-semibold">Publicación</th>
+                  <th className="py-2 px-3 font-semibold text-right">Inversión</th>
+                  <th className="py-2 px-3 font-semibold text-right">vs. anterior</th>
+                  <th className="py-2 px-3 font-semibold text-right">ACOS</th>
+                  <th className="py-2 px-3 font-semibold text-right">Visitas 7d</th>
+                  <th className="py-2 px-3 font-semibold text-right">Ventas 7d</th>
+                  <th className="py-2 px-3 font-semibold text-right">Conversión</th>
+                  <th className="py-2 pl-3 font-semibold text-right">Stock</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {(s.serie_anuncios ?? []).map(a => (
+                  <tr key={a.mla}>
+                    <td className="py-2 pr-3 max-w-[22rem]">
+                      <p className="text-slate-700 truncate">{a.titulo || a.mla}</p>
+                      <p className="text-[11px] text-slate-400 tabular-nums">{a.mla}</p>
+                    </td>
+                    <td className="py-2 px-3 text-right tabular-nums">{money(ultimo(a.puntos, 'inversion'))}</td>
+                    <td className="py-2 px-3 text-right"><Cambio pct={delta(a.puntos, 'inversion')} /></td>
+                    <td className="py-2 px-3 text-right tabular-nums">{num(ultimo(a.puntos, 'acos'), 1)} %</td>
+                    <td className="py-2 px-3 text-right tabular-nums">{num(ultimo(a.puntos, 'visitas'))}</td>
+                    <td className="py-2 px-3 text-right tabular-nums">{num(ultimo(a.puntos, 'ventas'))}</td>
+                    <td className="py-2 px-3 text-right tabular-nums">{num(ultimo(a.puntos, 'conversion'), 1)} %</td>
+                    <td className="py-2 pl-3 text-right tabular-nums">{num(ultimo(a.puntos, 'stock'))}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {(s.serie_anuncios ?? []).length === 0 && <p className="text-sm text-slate-400">Todavía no hay publicaciones con publicidad.</p>}
+          </div>
+        )}
+
+        {tab === 'posiciones' && (
+          Object.keys(porTermino).length === 0
+            ? <p className="text-sm text-slate-400">No hay posiciones medidas todavía.</p>
+            : (
+              <div className="grid lg:grid-cols-2 gap-5">
+                {Object.entries(porTermino).map(([termino, series]) => (
+                  <div key={termino}>
+                    <h4 className="text-sm font-semibold text-slate-800 mb-1">«{termino}»</h4>
+                    <p className="text-[11px] text-slate-400 mb-2">Posición en la primera página: menos es mejor. «no ap.» = se midió pero no aparece; «—» = esa corrida no se pudo medir.</p>
+                    <TablaPosiciones series={series} />
+                  </div>
+                ))}
+              </div>
+            )
+        )}
+
+        {tab === 'propuestas' && (
+          (s.promo_detalle ?? []).length === 0
+            ? <p className="text-sm text-slate-400">Sin promociones activas ni propuestas.</p>
+            : (
+              <div className="space-y-5">
+                {(s.promo_detalle ?? []).map(pr => (
+                  <div key={pr.id}>
+                    <div className="flex flex-wrap items-center gap-2 mb-2">
+                      <h4 className="text-sm font-semibold text-slate-800">{pr.nombre}</h4>
+                      <span className={`badge ${pr.estado.startsWith('Propuesta') ? 'badge-pending' : 'badge-approved'}`}>{pr.estado}</span>
+                      {pr.hasta && <span className="text-xs text-slate-400">hasta el {fechaCorta(pr.hasta)}</span>}
+                    </div>
+                    {pr.productos.length === 0 ? (
+                      <p className="text-sm text-slate-400">Mercado Libre no devolvió los productos de esta promoción.</p>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="text-left text-[10px] uppercase tracking-widest text-slate-400">
+                              <th className="py-2 pr-3 font-semibold">Producto</th>
+                              <th className="py-2 px-3 font-semibold text-right">Precio hoy</th>
+                              <th className="py-2 px-3 font-semibold text-right">Con promo</th>
+                              <th className="py-2 px-3 font-semibold text-right">Descuento</th>
+                              <th className="py-2 px-3 font-semibold text-right">Resignás</th>
+                              <th className="py-2 px-3 font-semibold text-right">Ventas 7d</th>
+                              <th className="py-2 pl-3 font-semibold text-right">Stock</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {pr.productos.map(prod => (
+                              <tr key={prod.mla}>
+                                <td className="py-2 pr-3 max-w-[22rem]">
+                                  <p className="text-slate-700 truncate">{prod.titulo || prod.mla}</p>
+                                  <p className="text-[11px] text-slate-400 tabular-nums">{prod.mla}</p>
+                                </td>
+                                <td className="py-2 px-3 text-right tabular-nums">{money(prod.precio_actual)}</td>
+                                <td className="py-2 px-3 text-right tabular-nums">{money(prod.precio_promo)}</td>
+                                <td className="py-2 px-3 text-right tabular-nums">{num(prod.descuento, 1)} %</td>
+                                <td className="py-2 px-3 text-right tabular-nums text-red-600">{money(prod.resigna)}</td>
+                                <td className="py-2 px-3 text-right tabular-nums">{num(prod.ventas_7d)}</td>
+                                <td className="py-2 pl-3 text-right tabular-nums">{num(prod.stock)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                ))}
+                <p className="note text-xs text-slate-400">El margen depende de tu costo de fabricación, que el panel no tiene: acá ves cuánto resignás por unidad sobre el precio de hoy.</p>
+              </div>
+            )
+        )}
+      </div>
     </div>
   )
 }
@@ -386,6 +696,8 @@ export default function InformeML() {
             <HistorialCard items={state?.historial ?? []} />
             </div>
           </div>
+
+          <Detalle s={last.summary} />
         </>
       )}
 

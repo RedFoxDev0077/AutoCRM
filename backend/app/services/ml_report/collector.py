@@ -214,6 +214,23 @@ class Collector:
             return []
         return r.json().get("results", [])
 
+    async def promotion_items(self, client, promos: list[dict]) -> dict:
+        """Products inside each promotion that is running or waiting for an answer."""
+        out: dict[str, list[dict]] = {}
+        for pr in promos[:12]:
+            if (pr.get("status") or "").lower() not in ("candidate", "started", "pending"):
+                continue
+            pid = pr.get("id")
+            r = await self._get(client, f"/seller-promotions/promotions/{pid}/items",
+                                params={"promotion_type": pr.get("type"), "app_version": "v2", "limit": 50})
+            if r.status_code != 200:
+                nombre = pr.get("name") or pid
+                self._fail("Promociones", f"«{nombre}»: " + self._why(r))
+                continue
+            out[str(pid)] = r.json().get("results", [])
+            await asyncio.sleep(0.2)
+        return out
+
     # ── posiciones ───────────────────────────────────────────
     async def positions(self, client) -> list[dict]:
         rows = []
@@ -240,11 +257,12 @@ class Collector:
             ord_30 = await self.orders(client, 0, ADS_WINDOW_DAYS)
             ads = await self.ads(client)
             promos = await self.promotions(client)
+            promo_items = await self.promotion_items(client, promos)
             pos = await self.positions(client)
         return {
             "fecha": _day(self.now), "catalogo": cat,
             "visitas": vis_now, "visitas_prev": vis_prev,
             "ventas": ord_now["units"], "ventas_prev": ord_prev["units"],
             "facturacion_30d": ord_30["total"],
-            "ads": ads, "promociones": promos, "posiciones": pos,
+            "ads": ads, "promociones": promos, "promo_items": promo_items, "posiciones": pos,
         }

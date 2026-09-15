@@ -276,3 +276,123 @@ def next_run(now: datetime) -> datetime:
         if d.weekday() in (0, 3) and d > now:
             return d
     return now + timedelta(days=1)
+
+
+# ── detalle para el informe ampliado ────────────────────────────────
+def serie_cuenta(hist: list[dict]) -> list[dict]:
+    """Totales por corrida: inversión, ingresos, ROAS, ACOS, ventas y clics."""
+    por_fecha: dict[str, list[dict]] = {}
+    for r in hist:
+        por_fecha.setdefault(r["fecha"], []).append(r)
+    salida = []
+    for fecha in sorted(por_fecha):
+        filas = por_fecha[fecha]
+        inv = sum(r["inversion"] or 0 for r in filas)
+        ing = sum(r["ingresos"] or 0 for r in filas)
+        salida.append({
+            "fecha": fecha, "inversion": round(inv, 2), "ingresos": round(ing, 2),
+            "roas": round(ing / inv, 2) if inv else None,
+            "acos": round(inv / ing * 100, 2) if ing else None,
+            "ventas": sum(r["ventas_atrib"] or 0 for r in filas),
+            "clics": sum(r["clics"] or 0 for r in filas),
+            "anuncios": len(filas),
+        })
+    return salida
+
+
+def serie_campanas(hist: list[dict], limite: int = 6) -> list[dict]:
+    """Inversión, ingresos y ROAS por campaña en cada corrida (las que más invierten)."""
+    gasto: dict[str, float] = {}
+    for r in hist:
+        if r["campana"]:
+            gasto[r["campana"]] = gasto.get(r["campana"], 0) + (r["inversion"] or 0)
+    top = sorted(gasto, key=lambda c: gasto[c], reverse=True)[:limite]
+    salida = []
+    for campana in top:
+        puntos: dict[str, dict] = {}
+        for r in hist:
+            if r["campana"] != campana:
+                continue
+            p = puntos.setdefault(r["fecha"], {"fecha": r["fecha"], "inversion": 0.0, "ingresos": 0.0, "ventas": 0.0})
+            p["inversion"] += r["inversion"] or 0
+            p["ingresos"] += r["ingresos"] or 0
+            p["ventas"] += r["ventas_atrib"] or 0
+        for p in puntos.values():
+            p["inversion"], p["ingresos"] = round(p["inversion"], 2), round(p["ingresos"], 2)
+            p["roas"] = round(p["ingresos"] / p["inversion"], 2) if p["inversion"] else None
+        salida.append({"campana": campana, "puntos": [puntos[f] for f in sorted(puntos)]})
+    return salida
+
+
+def serie_anuncios(hist: list[dict], limite: int = 8) -> list[dict]:
+    """Evolución por publicación: inversión, ACOS, visitas, ventas y conversión."""
+    gasto: dict[str, float] = {}
+    titulos: dict[str, str] = {}
+    for r in hist:
+        gasto[r["mla"]] = gasto.get(r["mla"], 0) + (r["inversion"] or 0)
+        if r["titulo"]:
+            titulos[r["mla"]] = r["titulo"]
+    top = sorted(gasto, key=lambda m: gasto[m], reverse=True)[:limite]
+    salida = []
+    for mla in top:
+        puntos = [{"fecha": r["fecha"], "inversion": r["inversion"], "ingresos": r["ingresos"], "acos": r["acos"],
+                   "visitas": r["visitas_7d"], "ventas": r["ventas_7d"], "conversion": r["conversion_7d"],
+                   "precio": r["precio_final"], "stock": r["stock"]}
+                  for r in hist if r["mla"] == mla]
+        salida.append({"mla": mla, "titulo": titulos.get(mla, ""), "puntos": sorted(puntos, key=lambda p: p["fecha"])})
+    return salida
+
+
+def serie_posiciones(all_pos: list[dict]) -> list[dict]:
+    """Posición medida en cada corrida, por término y publicación."""
+    series: dict[tuple, dict] = {}
+    for p in all_pos:
+        clave = (p["termino"], p["mla"])
+        s = series.setdefault(clave, {"termino": p["termino"], "mla": p["mla"], "titulo": p["titulo"], "puntos": []})
+        if p["titulo"] and not s["titulo"]:
+            s["titulo"] = p["titulo"]
+        s["puntos"].append({"fecha": p["fecha"],
+                            "posicion": int(p["posicion"]) if str(p["posicion"]).isdigit() else None,
+                            "estado": p["posicion"]})
+    for s in series.values():
+        s["puntos"].sort(key=lambda p: p["fecha"])
+    return sorted(series.values(), key=lambda s: (s["termino"], s["mla"]))
+
+
+LABEL_PROMO = {"started": "Activa", "pending": "Programada", "candidate": "Propuesta sin responder"}
+
+
+def promo_detalle(data: dict, rows: list[dict]) -> list[dict]:
+    """Cada promoción con sus productos: precio actual, precio con descuento y cuánto se resigna."""
+    por_mla = {r["mla"]: r for r in rows}
+    catalogo = data["catalogo"]["items"]
+    salida = []
+    for pr in data["promociones"]:
+        estado = (pr.get("status") or "").lower()
+        if estado not in ("candidate", "started", "pending"):
+            continue
+        productos = []
+        for it in data.get("promo_items", {}).get(str(pr.get("id")), []):
+            mla = it.get("id") or it.get("item_id")
+            if not mla:
+                continue
+            item = catalogo.get(mla, {})
+            actual = _num(it.get("original_price"), item.get("price"), por_mla.get(mla, {}).get("precio_final"))
+            promo = _num(it.get("new_price"), it.get("price"), it.get("deal_price"), it.get("suggested_price"))
+            desc = _num(it.get("discount_percentage"), it.get("suggested_discount"))
+            if desc is None and actual and promo and promo < actual:
+                desc = round((1 - promo / actual) * 100, 1)
+            productos.append({
+                "mla": mla, "titulo": item.get("title") or por_mla.get(mla, {}).get("titulo", ""),
+                "precio_actual": actual, "precio_promo": promo, "descuento": desc,
+                "resigna": round(actual - promo, 2) if actual and promo else None,
+                "stock": _num(item.get("available_quantity")),
+                "ventas_7d": por_mla.get(mla, {}).get("ventas_7d"),
+            })
+        salida.append({
+            "id": str(pr.get("id")), "nombre": pr.get("name") or pr.get("type"), "tipo": pr.get("type"),
+            "estado": LABEL_PROMO.get(estado, estado),
+            "desde": (pr.get("start_date") or "")[:10], "hasta": (pr.get("finish_date") or "")[:10],
+            "productos": productos,
+        })
+    return salida
