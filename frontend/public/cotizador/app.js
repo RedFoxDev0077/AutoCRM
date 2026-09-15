@@ -654,27 +654,87 @@ function llenarMapeo(){
   vistaPrevia();
   ["mDesc","mPrecio","mCod","mBulto","mExtra"].forEach(function(id){ $(id).onchange = vistaPrevia; });
 }
+/* "2,62 USS", "U$S 18.90", "$ 11.850": moneda escrita en la celda del precio (null si no dice) */
+function monedaDe(txt){
+  var t = String(txt||"");
+  if(/(\bu\$\s?s\b|\bu\s?s\s?s\b|\busd\b|\bus\$|d[oó]lar)/i.test(t)) return "USD";
+  if(/\$|\bars\b|pesos/i.test(t)) return "ARS";
+  return null;
+}
+/* primer importe de la celda: "NUEVO PRODUCTO 11,00 USS" -> 11; "108,92 USS 119,81 USS" -> 108.92 */
+function precioDeCelda(txt){
+  var m = String(txt||"").match(/\d[\d.,]*\d|\d/);
+  return m ? parsearNumero(m[0]) : NaN;
+}
+/* rubro por palabras clave (del título de sección o de la descripción) */
+var RUBRO_CLAVES = [
+  ["Guantes y manguitos", /guante|manguito/],
+  ["Protección respiratoria", /respirat|mascara|semimascara|full face|filtro|cartucho|barbijo|valvula de (ex|in)halacion|copa nasal|orring/],
+  ["Protección visual y facial", /anteojo|antiparra|lente|visor|careta|protector facial|mascara de soldar/],
+  ["Protección auditiva", /auditiv|tapon|endoaural|copa auditiva/],
+  ["Protección de cabeza", /casco|cofia|capucha termica/],
+  ["Calzado de seguridad", /calzado|bota|botin|zapato|zapatilla/],
+  ["Protección contra caídas", /arnes|caida|cabo de vida|eslinga de posic|mosqueton|linea de vida|anticaida/],
+  ["Emergencias y primeros auxilios", /botiquin|emergencia|lavaojos|primeros auxilios|camilla/],
+  ["Señalización y demarcación", /senal|cinta de peligro|cono|demarcac|baliza|cartel/],
+  ["Sujeción de cargas", /sujecion|carga|faja de amarre|crique|eslinga/],
+  ["Indumentaria de trabajo", /indumentaria|ropa|campera|pantalon|camisa|mameluco|chaleco|capa|traje|delantal|buzo|parka|ambo|faja lumbar|remera|chomba/]
+];
+function rubroDe(txt){
+  var t = normal(txt);
+  if(!t) return null;
+  for(var i=0;i<RUBRO_CLAVES.length;i++){ if(RUBRO_CLAVES[i][1].test(t)) return RUBRO_CLAVES[i][0]; }
+  return null;
+}
+/* fila de título de sección: un solo texto, sin precio (p. ej. "GUANTES DE CUERO PARA SOLDADOR") */
+function esTituloSeccion(f, iP){
+  var llenas = f.filter(function(c){ return String(c||"").trim(); });
+  return llenas.length === 1 && !isFinite(precioDeCelda(f[iP])) && /[A-Za-zÁÉÍÓÚÑáéíóúñ]{4}/.test(llenas[0]);
+}
 function filasImportadas(){
   var iD = parseInt($("mDesc").value,10), iP = parseInt($("mPrecio").value,10),
       iC = parseInt($("mCod").value,10),  iB = parseInt($("mBulto").value,10),
       iE = parseInt($("mExtra").value,10);
-  var out = [], malas = 0;
+  var out = [], malas = 0, secciones = 0, seccion = "";
   impRows.forEach(function(f){
+    if(esTituloSeccion(f, iP)){ seccion = f.filter(function(c){ return String(c||"").trim(); })[0]; secciones++; return; }
     var d = (f[iD]||"").trim();
     var extra = iE >= 0 && iE !== iD ? (f[iE]||"").trim() : "";
     if(d && extra) d = d + " " + extra;
-    var v = parsearNumero(f[iP]);
+    var v = precioDeCelda(f[iP]);
     if(!d || d.length < 3 || !isFinite(v) || v <= 0){ malas++; return; }
-    out.push({ d:d, v:Math.round(v*1000)/1000, c:(iC>=0?(f[iC]||"").trim():""), b:(iB>=0?(f[iB]||"").trim():"") });
+    var bulto = iB >= 0 ? (f[iB]||"").trim() : "";
+    if(/[A-Za-z]/.test(bulto)){ var nb = bulto.match(/\d+(?!.*\d)/); bulto = nb ? nb[0] : ""; }
+    out.push({ d:d, v:Math.round(v*1000)/1000, c:(iC>=0?(f[iC]||"").trim():""), b:bulto,
+      m:monedaDe(f[iP]), r:rubroDe(d) || rubroDe(seccion) });  // la descripción manda: hay secciones sin título
   });
-  return { rows:out, malas:malas };
+  return { rows:out, malas:malas, secciones:secciones };
+}
+/* si la mayoría de los precios dice la moneda, se elige sola en "Moneda de los precios" */
+function monedaDetectada(rows){
+  var usd = 0, ars = 0;
+  rows.forEach(function(x){ if(x.m === "USD") usd++; else if(x.m === "ARS") ars++; });
+  if(rows.length && usd >= rows.length * 0.6) return "USD";
+  if(rows.length && ars >= rows.length * 0.6) return "ARS";
+  return null;
 }
 function vistaPrevia(){
   var r = filasImportadas();
-  $("prevBox").innerHTML = '<table><thead><tr><th>Descripción</th><th>Código</th><th>Bulto</th><th>Precio</th></tr></thead><tbody>'+
-    r.rows.slice(0,8).map(function(x){ return '<tr><td>'+esc(x.d)+'</td><td>'+esc(x.c)+'</td><td>'+esc(x.b)+'</td><td>'+fmt(x.v)+'</td></tr>'; }).join("")+
+  var det = monedaDetectada(r.rows);
+  if(det && $("iMon").value !== det){ $("iMon").value = det; }
+  var mon = $("iMon").value, rub = $("iRubro").value || "Otros";
+  $("prevBox").innerHTML = '<table><thead><tr><th>Descripción</th><th>Código</th><th>Bulto</th><th>Rubro</th><th>Precio</th></tr></thead><tbody>'+
+    r.rows.slice(0,8).map(function(x){
+      var m = x.m || mon;
+      return '<tr><td>'+esc(x.d)+'</td><td>'+esc(x.c)+'</td><td>'+esc(x.b)+'</td><td>'+esc(x.r || rub)+'</td>'+
+        '<td>'+(m === "USD" ? "U$S " : "$ ")+fmt(x.v)+'</td></tr>';
+    }).join("")+
     '</tbody></table>';
-  $("impInfo").textContent = r.rows.length + " filas listas" + (r.malas ? " · " + r.malas + " descartadas (sin descripción o sin precio válido)" : "");
+  var conRubro = r.rows.filter(function(x){ return x.r; }).length;
+  $("impInfo").textContent = r.rows.length + " artículos listos" +
+    (det ? " · precios en " + (det === "USD" ? "dólares" : "pesos") + " (detectado)" : "") +
+    (r.rows.length ? " · " + conRubro + " con rubro reconocido" : "") +
+    (r.malas ? " · " + r.malas + " filas descartadas (sin descripción o sin precio)" : "");
   $("btnImportar").disabled = r.rows.length === 0;
 }
 
@@ -1385,6 +1445,8 @@ function start(){
   var tp=null;
   $("iPaste").addEventListener("input", function(){ clearTimeout(tp); tp=setTimeout(function(){ analizarPegado($("iPaste").value); },250); });
   $("iModo").addEventListener("change", function(){ analizarPegado($("iPaste").value); });
+  $("iMon").addEventListener("change", function(){ if(impRows.length) vistaPrevia(); });
+  $("iRubro").addEventListener("change", function(){ if(impRows.length) vistaPrevia(); });
   $("iFile").addEventListener("change", function(){
     var file=this.files && this.files[0]; if(!file) return;
     if(/\.json$/i.test(file.name)){ importarJson(file); this.value=""; return; }
@@ -1401,9 +1463,11 @@ function start(){
     var prov = ($("iProv").value || $("iNombre").value || "PROPIA").trim().toUpperCase().slice(0,18);
     var nombre = ($("iNombre").value || prov + " — importada").trim();
     var mon = $("iMon").value, rub = $("iRubro").value || "Otros";
-    var L = { id:"l"+Date.now().toString(36), nombre:nombre, prov:prov, moneda:mon,
-      fecha:hoy(), activa:true,
-      items:r.rows.map(function(x){ return { d:x.d, c:x.c, b:x.b, m:mon, v:x.v, r:rub }; }) };
+    var items = r.rows.map(function(x){ return { d:x.d, c:x.c, b:x.b, m:x.m || mon, v:x.v, r:x.r || rub }; });
+    var monedas = {}; items.forEach(function(x){ monedas[x.m] = 1; });
+    var L = { id:"l"+Date.now().toString(36), nombre:nombre, prov:prov,
+      moneda:Object.keys(monedas).length > 1 ? "mixta" : (Object.keys(monedas)[0] || mon),
+      fecha:hoy(), activa:true, items:items };
     LISTAS.push(L);
     construirItems(); renderCatalogo(); renderListas(); renderMargenes();
     guardarListaNueva(L).catch(function(){});
