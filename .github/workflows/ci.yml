@@ -151,6 +151,13 @@ jobs:
 
           docker compose up -d --build --remove-orphans
 
+          # nginx.conf is a single-file bind mount: git replaces the file, and a
+          # running container keeps reading the old one until it is restarted.
+          if ! git diff --quiet "$PREV" "$TARGET_SHA" -- nginx/nginx.conf; then
+            echo "nginx.conf changed - restarting nginx"
+            docker compose restart nginx
+          fi
+
           healthy=0
           for i in $(seq 1 20); do
             if docker compose exec -T backend python -c \

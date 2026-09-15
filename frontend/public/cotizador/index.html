@@ -632,14 +632,14 @@ td.acts{white-space:nowrap;text-align:right;padding-top:6px!important}
             </select>
           </div>
           <div>
-            <label for="iPaste">Pegá acá lo que tengas, o elegí un CSV o JSON</label>
+            <label for="iPaste">Pegá acá lo que tengas, o elegí un PDF, Excel guardado como CSV, o JSON</label>
             <textarea id="iPaste" placeholder="De Excel:
 GUANTE NITRILO T9	1234	1850,50	12
 
 O de un PDF, un mail o WhatsApp:
 GUANTE NITRILO T9 ........ $ 1.850,50
 ANTIPARRA POLICARBONATO ... $ 6.900"></textarea>
-            <input type="file" id="iFile" accept=".csv,.tsv,.txt,.json" style="margin-top:8px;font-size:12px">
+            <input type="file" id="iFile" accept=".pdf,.csv,.tsv,.txt,.json,application/pdf" style="margin-top:8px;font-size:12px">
           </div>
           <div id="mapBox" hidden>
             <div class="g2">
@@ -649,6 +649,10 @@ ANTIPARRA POLICARBONATO ... $ 6.900"></textarea>
             <div class="g2" style="margin-top:10px">
               <div><label for="mCod">Columna código</label><select id="mCod"></select></div>
               <div><label for="mBulto">Columna bulto</label><select id="mBulto"></select></div>
+            </div>
+            <div class="g2" style="margin-top:10px">
+              <div><label for="mExtra">Sumar a la descripción</label><select id="mExtra"></select></div>
+              <div></div>
             </div>
             <div style="margin-top:10px"><label>Vista previa</label><div class="prev" id="prevBox"></div></div>
             <p class="note" id="modoInfo" style="margin-top:6px"></p>

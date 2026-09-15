@@ -582,6 +582,7 @@ function llenarMapeo(){
   $("mPrecio").innerHTML = opts(false);
   $("mCod").innerHTML = opts(true);
   $("mBulto").innerHTML = opts(true);
+  $("mExtra").innerHTML = opts(true);
   // autodeteccion
   var pick = function(rx, fallback){
     for(var i=0;i<impHead.length;i++) if(rx.test(normal(impHead[i]))) return i;
@@ -591,6 +592,13 @@ function llenarMapeo(){
   var iPre  = pick(/(precio|costo|importe|valor|unitario)/, -1);
   var iCod  = pick(/(codigo|cod|sku|art\.?$|referencia)/, -1);
   var iBul  = pick(/(bulto|pack|caja|unid)/, -1);
+  // "Producto" + "Descripción" en columnas separadas: se suman en la descripción
+  var iExtra = -1;
+  if(iDesc >= 0){
+    for(var e=0;e<impHead.length;e++){
+      if(e !== iDesc && /(descrip|detalle|modelo|tela|material)/.test(normal(impHead[e]))){ iExtra = e; break; }
+    }
+  }
   if(iDesc < 0 || iPre < 0){
     // por contenido: descripcion = columna con mas letras; precio = columna numerica de mayor promedio
     var letras = [], nums = [];
@@ -642,15 +650,19 @@ function llenarMapeo(){
   $("mPrecio").value = String(Math.max(0,iPre));
   $("mCod").value = String(iCod);
   $("mBulto").value = String(iBul);
+  $("mExtra").value = String(iExtra);
   vistaPrevia();
-  ["mDesc","mPrecio","mCod","mBulto"].forEach(function(id){ $(id).onchange = vistaPrevia; });
+  ["mDesc","mPrecio","mCod","mBulto","mExtra"].forEach(function(id){ $(id).onchange = vistaPrevia; });
 }
 function filasImportadas(){
   var iD = parseInt($("mDesc").value,10), iP = parseInt($("mPrecio").value,10),
-      iC = parseInt($("mCod").value,10),  iB = parseInt($("mBulto").value,10);
+      iC = parseInt($("mCod").value,10),  iB = parseInt($("mBulto").value,10),
+      iE = parseInt($("mExtra").value,10);
   var out = [], malas = 0;
   impRows.forEach(function(f){
     var d = (f[iD]||"").trim();
+    var extra = iE >= 0 && iE !== iD ? (f[iE]||"").trim() : "";
+    if(d && extra) d = d + " " + extra;
     var v = parsearNumero(f[iP]);
     if(!d || d.length < 3 || !isFinite(v) || v <= 0){ malas++; return; }
     out.push({ d:d, v:Math.round(v*1000)/1000, c:(iC>=0?(f[iC]||"").trim():""), b:(iB>=0?(f[iB]||"").trim():"") });
@@ -695,6 +707,40 @@ function importarJson(file){
   };
   fr.onerror = function(){ toast("No se pudo leer el archivo."); };
   fr.readAsText(file, "utf-8");
+}
+
+/* PDF de proveedor: el servidor saca la tabla (o el texto) y se revisa en el mapeo antes de importar */
+function importarPdf(file){
+  $("mapBox").hidden = true;
+  $("impInfo").textContent = "";
+  $("modoInfo").textContent = "";
+  var ejemplo = $("iPaste").placeholder;
+  $("iPaste").value = "";
+  $("iPaste").placeholder = "Leyendo " + file.name + "…";
+  var body = new FormData();
+  body.append("file", file);
+  fetch("/api/cotizador/pdf-texto", { method:"POST", headers:{ "Authorization":"Bearer " + token() }, body:body })
+    .then(function(r){
+      if(r.status === 401){ irAlLogin(); throw { code:"la sesión venció" }; }
+      if(r.status === 413) throw { code:"el PDF es demasiado grande (máximo 20 MB)" };
+      return r.json().catch(function(){ return {}; }).then(function(j){
+        if(!r.ok) throw { code: j.detail || ("error " + r.status) };
+        return j;
+      });
+    }, function(){ throw { code:"sin conexión" }; })
+    .then(function(j){
+      $("iModo").value = j.modo === "tabla" ? "tabla" : "lineas";
+      $("iPaste").value = j.texto;
+      if(!$("iNombre").value) $("iNombre").value = file.name.replace(/\.[^.]+$/,"");
+      analizarPegado(j.texto);
+      $("modoInfo").textContent = (j.modo === "tabla"
+        ? "Se leyó la tabla del PDF (" + j.filas + " filas"
+        : "El PDF no tiene una tabla clara: se leyó el texto línea por línea (" + j.filas + " líneas") +
+        ", " + j.paginas + (j.paginas === 1 ? " página)." : " páginas).") + " Revisá las columnas y la vista previa antes de importar.";
+      toast("PDF leído. Revisá la vista previa y tocá Importar.");
+    })
+    .catch(function(e){ toast("No se pudo leer el PDF: " + ((e && e.code) || "error")); })
+    .then(function(){ $("iPaste").placeholder = ejemplo; });
 }
 
 /* ============ márgenes ============ */
@@ -1342,6 +1388,7 @@ function start(){
   $("iFile").addEventListener("change", function(){
     var file=this.files && this.files[0]; if(!file) return;
     if(/\.json$/i.test(file.name)){ importarJson(file); this.value=""; return; }
+    if(/\.pdf$/i.test(file.name) || file.type === "application/pdf"){ importarPdf(file); this.value=""; return; }
     var fr=new FileReader();
     fr.onload=function(){ $("iPaste").value=String(fr.result).slice(0,900000); analizarPegado($("iPaste").value);
       if(!$("iNombre").value) $("iNombre").value = file.name.replace(/\.[^.]+$/,""); };
