@@ -5,3 +5,4 @@ from app.models.push_subscription import PushSubscription
 from app.models.ml_order import MLOrder
 from app.models.cotizador_doc import CotizadorDoc
 from app.models.ml_report import MLReport, MLAdSnapshot, MLPositionSnapshot
+from app.models.ml_quick_reply import MLQuickReply

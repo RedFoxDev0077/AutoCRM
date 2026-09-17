@@ -33,6 +33,98 @@ function toHttps(url: string) {
   return url ? url.replace(/^http:\/\//, 'https://') : url
 }
 
+// ── Saved replies ──────────────────────────────────────────────
+type Respuesta = { id: number; titulo: string; texto: string; usos: number }
+
+/** Fills {producto} and {stock} with the question's listing. */
+function completarRespuesta(texto: string, item: any) {
+  return texto
+    .replace(/\{producto\}/gi, item?.title ?? 'el producto')
+    .replace(/\{stock\}/gi, item?.available_quantity != null ? String(item.available_quantity) : '')
+}
+
+function GestorRespuestas({ respuestas, onChange, onClose }: {
+  respuestas: Respuesta[]; onChange: () => void; onClose: () => void
+}) {
+  const [nuevo, setNuevo] = useState({ titulo: '', texto: '' })
+  const [edit, setEdit] = useState<Record<number, { titulo: string; texto: string }>>({})
+  const [guardando, setGuardando] = useState(false)
+
+  const crear = async () => {
+    if (!nuevo.titulo.trim() || !nuevo.texto.trim()) return toast.error('Completá el nombre y el texto')
+    setGuardando(true)
+    try {
+      await api.post('/ml/respuestas', nuevo)
+      setNuevo({ titulo: '', texto: '' })
+      toast.success('Respuesta guardada')
+      onChange()
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail?.[0]?.msg ?? e?.response?.data?.detail ?? 'No se pudo guardar')
+    } finally { setGuardando(false) }
+  }
+  const guardar = async (r: Respuesta) => {
+    const v = edit[r.id]
+    if (!v) return
+    try {
+      await api.put(`/ml/respuestas/${r.id}`, v)
+      setEdit(prev => { const n = { ...prev }; delete n[r.id]; return n })
+      toast.success('Cambios guardados')
+      onChange()
+    } catch { toast.error('No se pudo guardar') }
+  }
+  const borrar = async (r: Respuesta) => {
+    if (!confirm(`¿Borrar la respuesta «${r.titulo}»?`)) return
+    try { await api.delete(`/ml/respuestas/${r.id}`); onChange() }
+    catch { toast.error('No se pudo borrar') }
+  }
+
+  return (
+    <div className="card p-4 space-y-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold text-slate-800">Respuestas guardadas</p>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Aparecen como botones en cada pregunta. Podés escribir <code className="text-[11px] bg-slate-100 px-1 rounded">{'{producto}'}</code> y
+            <code className="text-[11px] bg-slate-100 px-1 rounded ml-1">{'{stock}'}</code>: se completan solos con la publicación.
+          </p>
+        </div>
+        <button onClick={onClose} className="btn-ghost text-xs shrink-0"><X size={13} /> Cerrar</button>
+      </div>
+
+      <ul className="space-y-3">
+        {respuestas.map(r => {
+          const v = edit[r.id] ?? { titulo: r.titulo, texto: r.texto }
+          const cambiado = !!edit[r.id]
+          return (
+            <li key={r.id} className="rounded-xl border border-slate-100 p-3 space-y-2">
+              <div className="flex items-center gap-2">
+                <input value={v.titulo} maxLength={60}
+                  onChange={e => setEdit(prev => ({ ...prev, [r.id]: { ...v, titulo: e.target.value } }))}
+                  className="input py-1.5 text-sm font-medium flex-1" aria-label="Nombre de la respuesta" />
+                <span className="text-[10px] text-slate-400 whitespace-nowrap">{r.usos} usos</span>
+                {cambiado && <button onClick={() => guardar(r)} className="btn-primary py-1.5 px-3 text-xs"><Save size={12} /> Guardar</button>}
+                <button onClick={() => borrar(r)} className="btn-ghost text-xs text-red-500 hover:bg-red-50" aria-label="Borrar respuesta"><X size={13} /></button>
+              </div>
+              <textarea rows={2} value={v.texto} maxLength={2000}
+                onChange={e => setEdit(prev => ({ ...prev, [r.id]: { ...v, texto: e.target.value } }))}
+                className="input resize-y text-sm py-2" aria-label="Texto de la respuesta" />
+            </li>
+          )
+        })}
+      </ul>
+
+      <div className="rounded-xl border border-dashed border-slate-200 p-3 space-y-2">
+        <p className="text-xs font-semibold text-slate-600">Agregar una respuesta</p>
+        <input value={nuevo.titulo} maxLength={60} placeholder="Nombre del botón (ej: Colores)"
+          onChange={e => setNuevo(p => ({ ...p, titulo: e.target.value }))} className="input py-1.5 text-sm" />
+        <textarea rows={2} value={nuevo.texto} maxLength={2000} placeholder="Hola, ¿cómo estás? ..."
+          onChange={e => setNuevo(p => ({ ...p, texto: e.target.value }))} className="input resize-y text-sm py-2" />
+        <button onClick={crear} disabled={guardando} className="btn-primary py-1.5 px-3 text-xs"><PlusCircle size={12} /> Guardar respuesta</button>
+      </div>
+    </div>
+  )
+}
+
 // ── Questions tab ──────────────────────────────────────────────
 function QuestionsPanel({ connected }: { connected: boolean | null }) {
   const [questions, setQuestions]   = useState<any[]>([])
@@ -41,6 +133,22 @@ function QuestionsPanel({ connected }: { connected: boolean | null }) {
   const [sending, setSending]       = useState<number | null>(null)
   const [expanded, setExpanded]     = useState<Record<number, boolean>>({})
   const [showAll, setShowAll]       = useState(false)
+  const [respuestas, setRespuestas] = useState<Respuesta[]>([])
+  const [gestor, setGestor]         = useState(false)
+
+  const cargarRespuestas = async () => {
+    try { setRespuestas((await api.get('/ml/respuestas')).data) } catch { /* the buttons just won't show */ }
+  }
+  useEffect(() => { cargarRespuestas() }, [])
+
+  const usarRespuesta = (q: any, r: Respuesta) => {
+    const texto = completarRespuesta(r.texto, q.item)
+    setAnswers(prev => {
+      const actual = (prev[q.id] || '').trim()
+      return { ...prev, [q.id]: actual ? `${actual} ${texto}` : texto }
+    })
+    api.post(`/ml/respuestas/${r.id}/uso`).catch(() => {})
+  }
 
   const load = async (status = showAll ? 'all' : 'UNANSWERED') => {
     if (!connected) return
@@ -100,6 +208,9 @@ function QuestionsPanel({ connected }: { connected: boolean | null }) {
             <input type="checkbox" checked={showAll} onChange={e => setShowAll(e.target.checked)} className="rounded accent-brand-accent" />
             Ver respondidas también
           </label>
+          <button onClick={() => setGestor(v => !v)} className="btn-ghost text-xs">
+            <Zap size={13} /> Respuestas guardadas
+          </button>
         </div>
         <div className="flex items-center gap-2">
           <span className="text-xs text-slate-400 font-medium">{questions.length} preguntas</span>
@@ -125,6 +236,8 @@ function QuestionsPanel({ connected }: { connected: boolean | null }) {
           )}
         </div>
       </div>
+
+      {gestor && <GestorRespuestas respuestas={respuestas} onChange={cargarRespuestas} onClose={() => setGestor(false)} />}
 
       {typeof Notification !== 'undefined' && Notification.permission === 'denied' && (
         <div className="card border-red-100 bg-red-50 p-4 space-y-2">
@@ -241,6 +354,17 @@ function QuestionsPanel({ connected }: { connected: boolean | null }) {
                       <p className="text-sm text-slate-600 leading-relaxed">{q.answer.text}</p>
                     </div>
                   ) : (
+                    <>
+                    {respuestas.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 mb-2">
+                        {respuestas.map(r => (
+                          <button key={r.id} onClick={() => usarRespuesta(q, r)} title={completarRespuesta(r.texto, q.item)}
+                            className="text-xs font-medium px-2.5 py-1 rounded-lg border border-slate-200 bg-white text-slate-600 hover:border-brand-accent hover:text-brand-accent transition-colors">
+                            {r.titulo}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                     <div className="flex gap-2 items-end">
                       <textarea
                         rows={2}
@@ -261,6 +385,7 @@ function QuestionsPanel({ connected }: { connected: boolean | null }) {
                         {sending === q.id ? '' : 'Enviar'}
                       </button>
                     </div>
+                    </>
                   )}
                 </div>
               )}
